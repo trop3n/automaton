@@ -326,7 +326,24 @@ def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str)
         # This acts as an idempotent "add" operation.            
         response = client.put(f'/users/{user_id}/folders/{destination_folder_id}/videos/{video_id}')
         response.raise_for_status() # raise HTTP error on bad responses
-        
+
+        # Vimeo's PUT to add to folder returns 204 No Content on success
+        if response.status_code == 204:
+            print(f" Successfully added video ID {video_id} to folder ID {destination_folder_id}.")
+            return True
+        else:
+            print(f" Unexpected response status_code {response.status_code} when adding video ID {video_id} to folder {destination_folder_id}.")
+            print(f" Response content: {response.text}")
+            return False
+    except requests.exceptions.HTTPError as e:
+        print(f" HTTP error adding video ID {video_id} to folder {destination_folder_id}: {e}")
+        if e.response is not None:
+            print(f" Response content: {e.response.text}")
+    except requests.exceptions.ConnectionError as e:
+        print(f" Connection error adding video ID {video_id} to folder {destination_folder_id}: {e}")
+    except Exception as e:
+        print(f" An unexpected error occurred while adding video ID {video_id} to folder {destination_folder_id}: {e}")
+    return False
     
 def update_video_title(video_id: str, new_title: str) -> bool:
     """
