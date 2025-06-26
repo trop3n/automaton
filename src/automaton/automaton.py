@@ -379,6 +379,16 @@ def main():
         print("Please ensure either VIMEO_ACCESS_TOKEN or both VIMEO_CLIENT_ID and VIMEO_CLIENT_SECRET are set in your .env file.")
         return
 
+    # check if all hardcoded desintation folders are set to actual IDs
+    missing_dest_folders = []
+    for key, value in DESTINATION_FOLDERS.items():
+        if value is None or not isinstance(value, str) or value == f'YOUR_{key.replace(" ", "_").upper()}_FOLDER_ID':
+            missing_dest_folders.append(key)
+    if missing_dest_folders:
+        print(f"ERROR: Hardcoded destination folder IDs are still placeholders for: {', '.join(missing_dest_folders)}")
+        print("Please update the `DESTINATION_FOLDERS` dictionary in the script with your actual Vimeo folder IDs.")
+        return        
+
     authenticated_user_id = get_authenticated_user_id()
     if not authenticated_user_id:
         print("ERROR: Could not retrieve authenticated user ID. Please check your access token and its scopes.")
@@ -398,7 +408,9 @@ def main():
         print("No recent videos found in your Team Library within the last {LOOKBACK_HOURS} hours, or an error occurred. Exiting.")
         return
 
-    videos_to_process = []
+    # --- Secondary Filtering (by excluded folders) ---
+
+    videos_for_processing = []
     skipped_by_folder_count = 0
 
     print(f"\nFiltering videos based on upload time and excluded folders:")
@@ -435,72 +447,86 @@ def main():
     print(f"\nFinished filtering by folder. Total videos selected for processing: {len(videos_to_process)}")
     print(f" Skipped due to being in an excluded folder: {skipped_by_folder_count} videos")
 
-    if not videos_to_process:
+    if not videos_for_processing:
         print(f"\nNo recent videos found matching criteria after folder exclusion. Exiting.")
         return
 
-    processed_count = 0
-    skipped_count_during_update = 0
+    # --- Process Videos (Date Appending & Sorting) ---
+    videos_updated_title_count = 0
+    videos_skipped_title_update = 0
+    videos_sorted_count = 0
+    videos_skipped_sorting = 0
 
-    print("\nProcessing filtered videos for title updates:")
-    for i, video_info in enumerate(videos_to_process):
+    print("\nProcessing filtered videos for title updates and sorting:")
+    for i, video_info in enumerate(videos_for_processing):
         video_uri = video_info.get('uri')
         current_title = video_info.get('name')
         upload_date_str = video_info.get('created_time')
-
-        # Redundant checks as videos_to_process should be clean, good for safety
-        if not video_uri:
-            print(f"\nVideo {i+1}: Missing URI in video info. Skipping.")
-            skipped_count_during_update += 1
-            continue
+        parent_folder_info = video_info.get('parent_folder') # current folder into the for video
 
         video_id = get_video_id_from_uri(video_uri)
         if not video_id:
-            print(f"\nVideo {i+1} (URI: {video_uri}): Could not extract video ID from URI. Skipping.")
-            skipped_count_during_update += 1
+            print(f"\nVideo {i+1} (URI: {video_uri}): Could not extract video ID from URI. Skipping all processing for this video.")
+            videos_skipped_title_update += 1
+            videos_skipped_sorting += 1
             continue
 
         print(f"\nProcessing Video {i+1} (ID: {video_id}):")
-        if not current_title:
-            print(f" Could not retrieve current title for video ID {video_id}. Skipping.")
-            skipped_count_during_update += 1
-            continue
-        if not upload_date_str:
-            print(f" Could not retrieve upload date for video ID {video_id}. Skipping.")
-            continue
 
-        print(f" Current Title: '{current_title}'")
-        print(f" Upload Date (raw): '{upload_date_str}'")
+        # --- Date Appending Logic ---
+        if not current_title or not upload_date_str:
+            print(f" Could not retrieve current title or upload date for video ID {video_id}. Skipping title update.")
+            videos_skipped_title_update += 1
+        else:
+            print(f"  Current Title: '{current_title}'")
+            print(f"  Upload Date (raw): '{upload_date_str}'")
+            try:
+                dt_object = datetime.fromisoformat(upload_date_str.raplce('Z', '+00:00'))
+                formatted_date = dt_object.strftime(DATE_FORMAT)
+                print(f"  Formatted date: {formatted_date}")
 
-        try:
-            dt_object = datetime.fromisoformat(upload_date_str.replace('Z', '+00:00')) # Handle 'Z' for UTC
-            formatted_date = dt_object.strftime(DATE_FORMAT)
-            print(f" Formatted date: {formatted_date}")
+                if formatted_date in current_title:
+                    print(f"  Video title already contains the date '{formatted_date}'. No update needed.")
+                    videos_skipped_title_update += 1
+                else:
+                    new_title = f"{current_title} ({formatted_date})"
+                    print(f"  New Title will be: '{new_title}'")
+                    if update_video_title(video_id, new_title):
+                        videos_updated_title_count += 1
+                        current_title = new_title # Update current_title so sorting logic sess the new title
+                    else:
+                        videos_skipped_title_update += 1
+            except ValueError as e:
+                print(f"  Error parsing date '{upload_date_str}': {e}. Please check DATE_FORMAT. Skipping title update.")
+                videos_skipped_title_update += 1
+            except Exception as e:
+                print(f"  An unexpected error occurred during date processing or title update for video ID {video_id}: {e}. Skipping title update.")
+                videos_skipped_title_update += 1
 
-            # check if the title already contains the date to avoid duplicates
-            if formatted_date in current_title:
-                print(f" Video title already contains the date '{formatted_date}'. No update needed.")
-                skipped_count_during_update += 1
-                continue
+        # --- Sorting Logic ----
+        destination_folder_id = determine_destination_folder_id(video_info)
 
-            new_title = f"{current_title} ({formatted_date})"
-            print(f" New Title will be: '{new_title}'")
+        if destination_folder_id:
+            current_parent_folder_id = get_folder_id_from_uri(parent_folder_info.get('uri')) if parent_folder_info and isinstance(parent_folder_info, dict) else None
 
-            if update_video_title(video_id, new_title):
-                processed_count += 1
+            if current_parent_folder_id == destination_folder_id:
+                print(f"  Video ID {video_id} is already in the correct folder ID {destination_folder_id}. No sorting needed.")
+                videos_skipped_sorting += 1
             else:
-                skipped_count_during_update += 1 # count as skipped if update failed
-
-        except ValueError as e:
-            print(f" Error parsing date '{upload_date_str}': {e}. Please check DATE_FORMAT. Skipping.")
-            skipped_count_during_update += 1
-        except Exception as e:
-            print(f" An unexpected error occurred during date processing or title update for video ID {video_id}: {e}. Skipping.")
-            skipped_count_during_update += 1
+                print(f"  Determined destination folder for video ID {video_id}: {destination_folder_id}.")
+                if add_video_to_folder(video_id, destination_folder_id, authenticated_user_id):
+                    videos_sorted_count += 1
+                else:
+                    videos_skipped_sorting += 1
+        else:
+            print(f" Could not determine a destination folder for video ID {video_id}. Skipping sorting.")
+            videos_skipped_sorting += 1
 
     print(f"\n--- Processing Summary ---")
-    print(f"Videos processed and updated: {processed_count}")
-    print(f"Videos Skipped (during update): {skipped_count_during_update}")
+    print(f"Videos Processed and Titles Updated: {videos_updated_title_count}")
+    print(f"Videos Skipped (title update issues or already dated): {videos_skipped_title_update}")
+    print(f"Videos Sorted into Folders: {videos_sorted_count}")
+    print(f"Videos Skipped (sorting issues or no rule match): {videos_skipped_sorting}")
     print("---------------------------")
 
 if __name__ == '__main__':
