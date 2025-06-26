@@ -23,7 +23,64 @@ LOOKBACK_HOURS = 48
 # List of folder IDs to EXCLUDE from the scan.
 # Videos within these folders will NOT be checked or updated.
 # IMPORTANT: Use string format for IDs as they are often treated as strings by APIs.
-EXCLUDED_FOLDER_IDS = ['11103430', '8219992', '6002849']
+EXCLUDED_FOLDER_IDS = ['11103430', '182762', '8219992']
+
+DESTINATION_FOLDERS = {
+    "Worship Services": '15749517',
+    "Weddings and Memorials": '2478125',
+    "Scott's Classes": '15680946',
+    # Add more as needed, ensure you update their IDs here.
+}
+
+# --- Service Type Determination Logic --- 
+# This dictionary defines how to classify a video based on its live event ID
+# and the time range it was created (e.g., specific event IDs for specific service times).
+# Adjust these event IDs and time ranges to match your specific live event setup
+# The 'time_ranges' should be in HH:MM format for simplicity.abs
+SERVICE_TYPE_RULES = {
+    "3261302": { # Replace with actual Live Event ID
+        "name": "Worship Service - Traditional",
+        "folder": "Worship Services",
+        "time_ranges": [
+            ("09:20, 12:00"),
+        ]
+    },
+    "4590739": { 
+        "name": "Worship Service - Contemporary",
+        "folder": "Worship Services",
+        "time_ranges": [
+            ("09:20, 12:00"),
+        ]
+    },
+    "4972294": {
+        "name": "Memorials at St. Andrew",
+        "folder": "Weddings and Memorials",
+        "time_ranges": [
+            ("00:00", "23:59"),
+        ]
+    },
+    "3867304": {
+        "name": "Weddings at St. Andrew",
+        "folder": "Weddings and Memorials",
+        "time_ranges": [
+            ("00:00", "23:59"),
+        ]
+    },
+    "3251895": {
+        "name": "Class - Scott Engle's Tuesday Class",
+        "folder": "Scott's Classes",
+        "time_ranges": [
+            ("00:00", "23:59")
+        ]
+    },
+    "3378887": {
+        "name": "Class - Something Else Class",
+        "folder": "Scott's Classes",
+        "time_ranges": [
+            ("00:00", "23:59")
+        ]
+    }
+}
 
 client = VimeoClient(
     token=VIMEO_ACCESS_TOKEN,
@@ -54,19 +111,19 @@ def get_authenticated_user_id() -> str | None:
         print(f"An unexpected error occurred while fetching authenticated user ID: {e}")
     return None
 
-def get_recent_videos_with_folder_info(since_datetime: datetime) -> list[dict]:
+def get_recent_videos_with_folder_and_live_event_info(since_datetime: datetime) -> list[dict]:
     """
     Fetches videos from the authenticated user's entire library that were
     uploaded after the specified datetime. It optimizes by stopping pagination
     once videos older than 'since_datetime' are encountered.
-    Includes parent_folder.uri to enable folder exclusion later.
+    Includes parent_folder.uri and live_event.uri to enable filtering and sorting later.
 
     Args:
         since_datetime (datetime): Only videos uploaded after this time will be considered.
 
     Returns:
         list[dict]: A list of dictionaries, each containing recent video information
-                    including parent_folder.uri. Returns an empty list if an error occurs or no videos are found.
+                    including parent_folder.uri and live_event.uri. Returns an empty list if an error occurs or no videos are found.
     """
     all_recent_videos = []
     page = 1
@@ -85,7 +142,7 @@ def get_recent_videos_with_folder_info(since_datetime: datetime) -> list[dict]:
                     'per_page': per_page,
                     'sort': 'date', # sort by creation date
                     'direction': 'desc', # Newest first
-                    'fields': 'name,created_time,uri,parent_folder.uri' # added parent_folder.uri
+                    'fields': 'name,created_time,uri,parent_folder.uri,live_event.uri'
                 }
             )
             response.raise_for_status()
@@ -177,6 +234,99 @@ def get_folder_id_from_uri(folder_uri: str | None) -> str | None:
     if match:
         return match.group(1)
     return None
+
+def get_live_event_id_from_uri(event_uri: str | None) -> str | None:
+    """
+    Extracts the Vimeo Live Event ID from its URI (e.g., "/live_events/1234567").
+    """
+    if not isinstance(event_uri, str) or not event_uri:
+        return None
+    match = re.search(r'/live_events/(\d+)', event_uri)
+    if match:
+        return match.group(1)
+    return None
+
+def parse_time_string(time_str: str) -> time:
+    """Parses a 'HH:MM' string into a datetime.time object."""
+    return datetime.strptime(time_str, "%H:%M").time()
+
+def determine_destination_folder_id(video_info: dict) -> str | None:
+    """
+    Determines the correct destination folder ID for a video based on SERVICE_TYPE_RULES.
+
+    Args:
+        video_info (dict): Dictionary containing video details (including 'live_event', 'created_time').
+
+    Returns:
+        str | None: The destination folder ID if a match is found, otherwise None.
+    """
+    live_event_info = video_info.get('live_event')
+    created_time_str = video_info.get('created_time')
+
+    if not live_event_info or not isinstance(live_event_info, dict):
+        print(f"  No live event info for video {get_video_id_from_uri(video_info.get('uri'))}. Cannot categorize.")
+        return None
+
+    live_event_uri = live_event_info.get('uri')
+    created_time_str = video_info.get('created_time')
+
+    if not live_event_id:
+        print(f"  No live event ID found for video {get_video_id_from_uri(video_info.get('uri'))}. Cannot categorize.")
+        return None
+
+    video_created_dt_utc = None
+    if created_time_str:
+        try:
+            video_created_dt_utc = datetime.fromisoformat(created_time_str.replace('Z', '+00:00'))
+            if video_created_dt_utc.tzinfo is None:
+                video_created_dt_utc = video_created_dt_utc.replace(tzinfo=timezeone.utc)
+        except ValueError:
+            print(f" Warning: Could not parse created_time '{created_time_str}' for video {get_video_id_from_uri(video_info.get('uri'))}")
+
+    for rule_event_id, rule_details in SERVICE_TYPE_RULES.items():
+        if rule_event_id == live_event_id:
+            # Check time ranges if provided
+            if "time_ranges" in rule_details and video_created_dt_utc:
+                video_time_utc =- video_created_dt_utc.time()
+                for start_str, end_str in rule_details["time_ranges"]:
+                    start_time = parse_time_string(start_str)
+                    end_time = parse_time_string(end_str)
+
+                    # Handle overnight ranges (e.g. 22:00 - 02:00)
+                    if start_time <= end_time:
+                        if start_time <= video_time_utc <= end_time:
+                            folder_key = rule_details["folder_key"]
+                            return DESTINATION_FOLDERS.get(folder_key)
+                    else:
+                        if video_time_utc >= start_time or video_time_utc <= end_time:
+                            folder_key = rule_details["folder_key"]
+                            return DESTINATION_FOLDERS.get(folder_key)
+            else: # No time ranges or created_time missing, match just by event ID
+                folder_key = rule_details["folder_key"]
+                return DESTINATION_FOLDERS.get(folder_key)
+    return None # No matching rule found
+
+def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
+    """
+    Adds a video to a specified Vimeo folder. Note: Vimeo API adds a video to a folder
+    without automatically removing it from its original location (e.g., root).
+    If strict 'moving' is needed, you'd need to explicitly remove from the source folder.
+
+    Args:
+        video_id (str): The ID of the video to add.
+        destination_folder_id (str): The ID of the folder to add the video to.
+        user_id (str): The ID of the authenticated user.
+
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    print(f" Attempting to add video ID {video_id} to folder ID {destination_folder_id}...")
+    try:
+        # Using PUT /users/{user_id}/folders/{folder_id}/videos/{video_id} to add a video
+        # This acts as an idempotent "add" operation.            
+        response = client.put(f'/users/{user_id}/folders/{destination_folder_id}/videos/{video_id}')
+        response.raise_for_status() # raise HTTP error on bad responses
+        
     
 def update_video_title(video_id: str, new_title: str) -> bool:
     """
