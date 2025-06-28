@@ -402,7 +402,7 @@ def main():
     print(f"\nLooking for videos uploaded in the last {LOOKBACK_HOURS} hours (since {forty_eight_hours_ago.isoformat()}).")
 
     # fetch all videos from the user's library with parent folder info
-    recent_videos_from_api = get_recent_videos_with_folder_info(forty_eight_hours_ago) or []
+    recent_videos_from_api = get_recent_videos_with_folder_and_live_event_info(forty_eight_hours_ago) or []
 
     if not recent_videos_from_api:
         print("No recent videos found in your Team Library within the last {LOOKBACK_HOURS} hours, or an error occurred. Exiting.")
