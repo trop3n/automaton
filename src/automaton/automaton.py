@@ -282,6 +282,24 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
 
     video_created_time_str = video_info.get('created_time')
     video_created_dt_utc = None
+    if video_created_time_str:
+        try:
+            video_created_dt_utc = datetime.fromisoformat(video_created_time_str.replace('Z', '+00:00'))
+            if video_created_dt_utc.tzinfo is None:
+                video_created_dt_utc = video_created_dt_utc.replace(tzinfo=timezone.utc)
+            print(f"   Video creation time (UTC): {video_created_dt_utc.isoformat()}")
+        except ValueError as e:
+            print(f"   Warning: Could not parse created_time '{video_created_time_str}' for video {video_id_for_logging}. Error: {e}.")
+    else:
+        print(f"   Warning: Created time missing for video {video_id_for_logging}.")
+
+    for rule_event_id, rule_details in SERVICE_TYPE_RULES.items():
+        if rule_event_id == live_event_id:
+            print(f"   Matching rule found for Live Event ID {live_event_id}: '{rule_details['name']}'")
+            # Check time ranges if provided and video_created_dt_utc is available
+            if "time_ranges" in rule_details and video_created_dt_utc:
+                video_time_utc = video_created_dt_utc.time()
+                print(f"   Checking time ranges for video UTC time: {video_time_utc.strftime('%H:%M')}")
 
     if not live_event_info or not isinstance(live_event_info, dict):
         print(f"  No live event info for video {get_video_id_from_uri(video_info.get('uri'))}. Cannot categorize.")
