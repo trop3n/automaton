@@ -260,8 +260,28 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
     Returns:
         str | None: The destination folder ID if a match is found, otherwise None.
     """
+    video_id_for_logging = get_video_id_from_uri(video_info.get('uri'))
+    print(f"  Attempting to determine folder for video ID: {video_id_for_logging}")
+
     live_event_info = video_info.get('live_event')
-    created_time_str = video_info.get('created_time')
+    if not live_event_info:
+        print(f"   No 'live_event' information found for video ID {video_id_for_logging}. Cannot categorize by event.")
+        return None
+    if not isinstance(live_event_info, dict):
+        print(f"   Unexpected type for 'live_event' info ({type(live_event_info)}) for video ID {video_id_for_logging}. Expected dict.")
+        return None
+
+    live_event_uri = live_event_info.get('uri')
+    live_event_id = get_live_event_id_from_uri(live_event_uri)
+
+    if not live_event_id:
+        print(f"   Could not extract Live Event ID from URI '{live_event_uri}' for video ID {video_id_for_logging}. Cannot categorize.")
+        return None
+
+    print(f"   Detected Live Event ID: {live_event_id} for video ID {video_id_for_logging}")
+
+    video_created_time_str = video_info.get('created_time')
+    video_created_dt_utc = None
 
     if not live_event_info or not isinstance(live_event_info, dict):
         print(f"  No live event info for video {get_video_id_from_uri(video_info.get('uri'))}. Cannot categorize.")
@@ -442,9 +462,9 @@ def main():
         if is_excluded_folder:
             continue # Skip this video if its folder is excluded
 
-        videos_to_process.append(video_info) # Add to list if not excluded by folder
+        videos_for_processing.append(video_info) # Add to list if not excluded by folder
 
-    print(f"\nFinished filtering by folder. Total videos selected for processing: {len(videos_to_process)}")
+    print(f"\nFinished filtering by folder. Total videos selected for processing: {len(videos_for_processing)}")
     print(f" Skipped due to being in an excluded folder: {skipped_by_folder_count} videos")
 
     if not videos_for_processing:
@@ -481,7 +501,7 @@ def main():
             print(f"  Current Title: '{current_title}'")
             print(f"  Upload Date (raw): '{upload_date_str}'")
             try:
-                dt_object = datetime.fromisoformat(upload_date_str.raplce('Z', '+00:00'))
+                dt_object = datetime.fromisoformat(upload_date_str.replace('Z', '+00:00'))
                 formatted_date = dt_object.strftime(DATE_FORMAT)
                 print(f"  Formatted date: {formatted_date}")
 
