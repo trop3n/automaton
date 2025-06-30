@@ -330,6 +330,29 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                             print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
                             return None
 
+    # --- Fallback to Title Keyword Matching if no Live Event ID match ---
+    print(f"   No Live Event ID match found or live_event info is missing/invalid. Attempting title matching...")
+    for rule_id, rule_details in SERVICE_TYPE_RULES.items():
+        # Only check rules that specify title_keywords (i.e., not event ID based rules)
+        if "title_keywords" in rule_details and "folder_key" in rule_details:
+            all_keywords_match = True
+            for keyword in rule_details["title_keywords"]:
+                if keyword.lower() not in current_title:
+                    all_keywords_match = False
+                    break
+
+            if all_keywords_match:
+                folder_key = rule_details["folder_key"]
+                destination_id = DESTINATION_FOLDERS.get(folder_key)
+                if destination_id:
+                    print(f"   Video matches title keywords for rule '{rule_details['name']}'. Destination folder: '{folder_key}' (ID: {destination_id})")
+                    return destination_id
+                else:
+                    print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
+                    return None
+    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID or title keywords. Skipping sorting.")
+    return None # no matching rule found.
+
 def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
     """
     Adds a video to a specified Vimeo folder. Note: Vimeo API adds a video to a folder
