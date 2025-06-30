@@ -399,13 +399,25 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                         destination_id = DESTINATION_FOLDERS.get(folder_key)
                         if destination_id:
                             print(f"   Video matches day/time rule. Destination folder: '{folder_key}' (ID: {destination_id})")
+                            return destination_id
+                        else:
+                            print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
+                            return None
+                else:
+                print(f"    Video weekday ({video_weekday}) does not match rule '{rule_details['name']}'.")
+    print(f"    No Day/Time match found for video ID {video_id_for_logging}. Proceeding to title matching.")      
 
+    # --- 3. Fallback to Title Keyword Matching ---
+    print(f"    Attempting title matching for video ID: {video_id_for_logging}")
     for rule_id, rule_details in SERVICE_TYPE_RULES.items():
-        # Only check rules that specify title_keywords (i.e., not event ID based rules)
         if "title_keywords" in rule_details and "folder_key" in rule_details:
+            # Ensure it's a title-based rule:
+            if not rule_id.startswith("Title_"):
+                continue
+
             all_keywords_match = True
             for keyword in rule_details["title_keywords"]:
-                if keyword.lower() not in current_title:
+                if keyword.lower() not in current_title_lower:
                     all_keywords_match = False
                     break
 
@@ -418,7 +430,7 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                 else:
                     print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
                     return None
-    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID or title keywords. Skipping sorting.")
+    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID, day/time, or title keywords. Skipping sorting.")
     return None # no matching rule found.
 
 def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
@@ -600,12 +612,10 @@ def main():
                 formatted_date = dt_object.strftime(DATE_FORMAT)
                 print(f"  Formatted date: {formatted_date}")
                     # Check if the title already contains the date in the new format to avoid duplicates
-                    # This check if more robust to ensure we don't add multiple duplicates
                 if current_title.startswtih(f"({formatted_date})"):
                     print(f"   Video title already contains the date in the new format: '{formatted_date}'. No update needed.")
                     videos_skipped_title_update += 1
                 else:
-                    # FIX: change title format to (YYYY-MM-DD)
                     new_title = f"{current_title} ({formatted_date})"
                     print(f"  New Title will be: '{new_title}'")
                     if update_video_title(video_id, new_title):
