@@ -28,7 +28,7 @@ EXCLUDED_FOLDER_IDS = ['11103430', '182762', '8219992']
 DESTINATION_FOLDERS = {
     "Worship Services": '15749517',
     "Weddings and Memorials": '2478125',
-    "Scott's Classes": '15680946'
+    "Scott's Classes": '15680946',
     # Add more as needed, ensure you update their IDs here.
 }
 
@@ -367,7 +367,7 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
 
     # --- 2. Try Day of Week & Time of Day Matching (Medium Priority)
     if video_created_dt_utc:
-        video_weekday = video_created_dt_utc.weekday(): # 0=Monday, 6=Sunday
+        video_weekday = video_created_dt_utc.weekday() # 0=Monday, 6=Sunday
         video_time_utc = video_created_dt_utc.time()
         print(f"   Attempting Day/Time match. Weekday: {video_weekday}, Time (UTC): {video_time_utc.strftime('%H:%M')}")
 
@@ -404,7 +404,7 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                             print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
                             return None
                 else:
-                print(f"    Video weekday ({video_weekday}) does not match rule '{rule_details['name']}'.")
+                    print(f"    Video weekday ({video_weekday}) does not match rule '{rule_details['name']}'.")
     print(f"    No Day/Time match found for video ID {video_id_for_logging}. Proceeding to title matching.")      
 
     # --- 3. Fallback to Title Keyword Matching ---
