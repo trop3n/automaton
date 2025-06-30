@@ -38,48 +38,44 @@ DESTINATION_FOLDERS = {
 # Adjust these event IDs and time ranges to match your specific live event setup
 # The 'time_ranges' should be in HH:MM format for simplicity.abs
 SERVICE_TYPE_RULES = {
-    "3261302": { # Replace with actual Live Event ID
-        "name": "Worship Service - Traditional",
-        "folder": "Worship Services",
-        "time_ranges": [
-            ("09:20, 12:00"),
-        ]
+    "Title_Worship_Traditional": { # Unique identifier for this rule
+        "name": "Worship Service - Traditional (Title)",
+        "folder_key": "Worship Services",
+        "title_keywords": ["Worship Service", "Traditional"]
     },
-    "4590739": { 
-        "name": "Worship Service - Contemporary",
-        "folder": "Worship Services",
-        "time_ranges": [
-            ("09:20, 12:00"),
-        ]
+    "Title_Worship_Contemporary": { # Unique identifier for this rule
+        "name": "Worship Service - Contemporary (Title)",
+        "folder_key": "Worship Services",
+        "title_keywords": ["Worship Service", "Contemporary"]
     },
-    "4972294": {
+    "Title_Memorials": {
         "name": "Memorials at St. Andrew",
-        "folder": "Weddings and Memorials",
-        "time_ranges": [
-            ("00:00", "23:59"),
-        ]
+        "folder_key": "Weddings and Memorials",
+        "title_keywords": ["Memorials"]
     },
-    "3867304": {
+    "Title_Weddings": {
         "name": "Weddings at St. Andrew",
-        "folder": "Weddings and Memorials",
-        "time_ranges": [
-            ("00:00", "23:59"),
-        ]
+        "folder_key": "Weddings and Memorials",
+        "title_keywords": ["Weddings"]
     },
-    "3251895": {
+    "Title_Scott_Tuesday_Class": {
         "name": "Class - Scott Engle's Tuesday Class",
-        "folder": "Scott's Classes",
-        "time_ranges": [
-            ("00:00", "23:59")
-        ]
+        "folder_key": "Scott's Classes",
+        "title_keywords": ["Class", "Scott Engle's", "Tuesday Class"] # All must be present
     },
-    "3378887": {
+    "Title_Something_Else_Class": {
         "name": "Class - Something Else Class",
-        "folder": "Scott's Classes",
-        "time_ranges": [
-            ("00:00", "23:59")
-        ]
+        "folder_key": "Scott's Classes",
+        "title_keywords": ["Class", "Something Else Class"]
     }
+    # Add more title-based rules as needed
+    # You could also add a "Default" or "Unsorted" rule if no other match
+    # Example:
+    # "DEFAULT_UNSORTED": {
+    #     "name": "Uncategorized Videos",
+    #     "folder_key": "Uncategorized", # You'd need to define "Uncategorized" in DESTINATION_FOLDERS
+    #     "is_default": True # Flag to indicate it's a fallback
+    # }
 }
 
 client = VimeoClient(
@@ -261,84 +257,34 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
         str | None: The destination folder ID if a match is found, otherwise None.
     """
     video_id_for_logging = get_video_id_from_uri(video_info.get('uri'))
+    current_title = video_info.get('name', '').lower() # Get title for keyword matching
     print(f"  Attempting to determine folder for video ID: {video_id_for_logging}")
+    print(f"    Video Title: '{video_info.get('name')}'")
 
+    # --- Try Live Event ID Matching First ---
     live_event_info = video_info.get('live_event')
-    if not live_event_info:
-        print(f"   No 'live_event' information found for video ID {video_id_for_logging}. Cannot categorize by event.")
-        return None
-    if not isinstance(live_event_info, dict):
-        print(f"   Unexpected type for 'live_event' info ({type(live_event_info)}) for video ID {video_id_for_logging}. Expected dict.")
-        return None
+    if live_event_info and isinstance(live_event_info, dict):
+        live_event_uri = live_event_info.get('uri')
+        live_event_id = get_live_event_id_from_uri(live_event_uri)
 
-    live_event_uri = live_event_info.get('uri')
-    live_event_id = get_live_event_id_from_uri(live_event_uri)
-
-    if not live_event_id:
-        print(f"   Could not extract Live Event ID from URI '{live_event_uri}' for video ID {video_id_for_logging}. Cannot categorize.")
-        return None
-
-    print(f"   Detected Live Event ID: {live_event_id} for video ID {video_id_for_logging}")
-
-    video_created_time_str = video_info.get('created_time')
-    video_created_dt_utc = None
-    if video_created_time_str:
-        try:
-            video_created_dt_utc = datetime.fromisoformat(video_created_time_str.replace('Z', '+00:00'))
-            if video_created_dt_utc.tzinfo is None:
-                video_created_dt_utc = video_created_dt_utc.replace(tzinfo=timezone.utc)
-            print(f"   Video creation time (UTC): {video_created_dt_utc.isoformat()}")
-        except ValueError as e:
-            print(f"   Warning: Could not parse created_time '{video_created_time_str}' for video {video_id_for_logging}. Error: {e}.")
-    else:
-        print(f"   Warning: Created time missing for video {video_id_for_logging}.")
-
-    for rule_event_id, rule_details in SERVICE_TYPE_RULES.items():
-        if rule_event_id == live_event_id:
-            print(f"   Matching rule found for Live Event ID {live_event_id}: '{rule_details['name']}'")
-            # Check time ranges if provided and video_created_dt_utc is available
-            if "time_ranges" in rule_details and video_created_dt_utc:
-                video_time_utc = video_created_dt_utc.time()
-                print(f"   Checking time ranges for video UTC time: {video_time_utc.strftime('%H:%M')}")
-                matched_time_range = False
-                for start_str, end_str in rule_details["time_ranges"]:
-                    start_time = parse_time_string(start_str)
-                    end_time = parse_time_string(end_str)
-                    print(f"      Rule time range: {start_str} - {end_str}")
-
-                    # Handle overnight ranges
-                    if start_time <= end_time:
-                        if start_time <= video_time_utc <= end_time:
-                            matched_time_ranges = True
-                            break
-                    else:
-                        if video_time_utc >= start_time or video_time_utc <= end_time:
-                            matched_time_range = True
-                            break
-
-                if matched_time_range:
-                    folder_key = rule_details["folder_key"]
-                    destination_id = DESTINATION_FOLDERS.get(folder_key) 
-                    if destination_id:
-                        print(f"   Video matches rule and time range. Destination folder: '{folder_key}' (ID: {destination_id})")
-                        return destination_id
-                    else:
-                        print(f"    ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
-                        return None
-                else:
-                    print(f"   Video creation time ({video_time_utc.strftime('%H:%M')}) does not fall within any specified time ranges for rule '{rule_details['name']}'.")
-            else: # No time ranges specified or created_time missing, match just by event ID
-                folder_key = rule_details["folder_key"]
-                destination_id = DESTINATION_FOLDERS.get(folder_key)
-                if destination_id:
-                    print(f"   Video matches rule (no time range check). Destination folder: '{folder_key}' (ID: {destination_id})")
-                    return destination_id
-                else:
-                    print(f"    ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
-                    return None
-
-    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID and time. Returning None.")
-    return None
+        if live_event_id:
+            print(f"   Detected Live Event ID: {live_event_id}")
+            video_created_time_str = video_info.get('created_time')
+            video_created_dt_utc = None
+            if video_created_time_str:
+                try:
+                    video_created_dt_utc = datetime.fromisoformat(video_created_time_str.replace('Z', '+00:00'))
+                    if video_created_dt_utc.tzinfo is None:
+                        video_created_dt_utc = video_created_dt_utc.reaplce(tzinfo=timezone.utc)
+                    print(f"   Video creation time (UTC): {video_created_dt_utc.isoformat()}")
+                except ValueError as e:
+                    print(f"   Warning: Could not parse created_time '{video_created_time_str}' for video {video_id_for_logging}. Error: {e}")
+            
+            for rule_event_id, rule_details in SERVICE_TYPE_RULES.items():
+                # Only check rules that specify an event ID (i.e. not title-based rules)
+                if rule_event_id == live_event_id and "folder_key" in rule_details:
+                    # If this rule is not meant for an event ID (e.g., it's a title-based rule with "Title_" prefix), skip.
+                    # This check implicitly helps prioritize event ID matches.
 
 def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
     """
