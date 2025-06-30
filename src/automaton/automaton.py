@@ -285,6 +285,50 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                 if rule_event_id == live_event_id and "folder_key" in rule_details:
                     # If this rule is not meant for an event ID (e.g., it's a title-based rule with "Title_" prefix), skip.
                     # This check implicitly helps prioritize event ID matches.
+                    if rule_event_id.startswith("Title_"):
+                        continue
+
+                    print(f"   Matching rule found for Live Event ID {live_event_id}: '{rule_details['name']}'")
+
+                    # check time ranges if provided and video_created_dt_utc is available
+                    if "time_ranges" in rule_details and video_created_dt_utc:
+                        video_time_utc = video_created_dt_utc.time()
+                        print(f"   Checking time ranges for video UTC time: {video_time_utc.strftime('%H:%M')}")
+                        matched_time_range = False
+                        for start_str, end_str in rule_details["time_ranges"]:
+                            start_time = parse_time_string(start_str)
+                            end_time = parse_time_string(end_str)
+                            print(f"      Rule time range: {start_str} - {end_str}")
+
+                            if start_time <= end_time:
+                                if start_time <= video_time_utc <= end_time:
+                                    matched_time_range = True
+                                    break
+                                else: # Overnight range
+                                    if video_time_utc >= start_time or video_time_utc <= end_time:
+                                        matched_time_range = True
+                                        break
+                        
+                        if matched_time_range:
+                            folder_key = rule_details["folder_key"]
+                            destination_id = DESTINATION_FOLDERS.get("folder_key")
+                            if destination_id:
+                                print(f"   Video matches event ID and time range. Destination folder: '{folder_key}' (ID: {destination_id})")
+                                return destination_id
+                            else:
+                                print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
+                                return None
+                        else:
+                            print(f"   Video creation time ({video_time_utc.strftime('%H:%M')}) does not fall within any specified time ranges for '{rule_details['name']}'.")
+                    else:
+                        folder_key = rule_details["folder_key"]
+                        destination_id = DESTINATION_FOLDERS.get(folder_key)
+                        if destination_id:
+                            print(f"   Video matches event ID (no time range check). Destination folder: '{folder_key}' (ID: {destination_id})")
+                            return destination_id
+                        else:
+                            print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
+                            return None
 
 def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
     """
