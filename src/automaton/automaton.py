@@ -41,12 +41,12 @@ SERVICE_TYPE_RULES = {
     "Title_Worship_Traditional": { # Unique identifier for this rule
         "name": "Worship Service - Traditional (Title)",
         "folder_key": "Worship Services",
-        "title_keywords": ["Worship Service", "Traditional"]
+        "title_keywords": ["Worship Service", "Traditional", "Worship"]
     },
     "Title_Worship_Contemporary": { # Unique identifier for this rule
         "name": "Worship Service - Contemporary (Title)",
         "folder_key": "Worship Services",
-        "title_keywords": ["Worship Service", "Contemporary"]
+        "title_keywords": ["Worship Service", "Contemporary", "Worship"]
     },
     "Title_Memorials": {
         "name": "Memorials at St. Andrew",
