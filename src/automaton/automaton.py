@@ -1,4 +1,4 @@
-import os
+import osMore actions
 import requests
 import re
 from datetime import datetime, timedelta, timezone, time
@@ -32,51 +32,21 @@ DESTINATION_FOLDERS = {
     # Add more as needed, ensure you update their IDs here.
 }
 
-# --- Service Type Determination Logic ---
-# This dictionary defines how to classify a video based on its live event ID,
-# day of the week & time of day, OR title keywords.
-# Rules are checked in the order they appear (Live Event ID -> Day/Time -> Title).
-#
-# 'time_ranges': Tuples of HH:MM strings (start, end) based on UTC time of creation.
-# 'day_of_week': List of integers (0=Monday, 6=Sunday).
-# 'title_keywords': List of strings; if ALL keywords are found in the title (case-insensitive), it's a match.
+# --- Service Type Determination Logic --- 
+# This dictionary defines how to classify a video based on its live event ID
+# and the time range it was created (e.g., specific event IDs for specific service times).
+# Adjust these event IDs and time ranges to match your specific live event setup
+# The 'time_ranges' should be in HH:MM format for simplicity.abs
 SERVICE_TYPE_RULES = {
-    # --- 1. Live Event ID based rules (Highest Priority) ---
-    "3261302": { # Replace with actual Live Event ID for Traditional Service
-        "name": "Worship Service - Traditional (Event ID)",
-        "folder_key": "Worship Services",
-        "time_ranges": [("03:20", "07:00")] # Example: 9:20 AM UTC to 12:00 PM UTC
-    },
-    "4590739": { # Replace with actual Live Event ID for Contemporary Service
-        "name": "Worship Service - Contemporary (Event ID)",
-        "folder_key": "Worship Services",
-        "time_ranges": [("03:20", "07:00")]
-    },
-    # --- 2. Day of Week & Time of Day based rules (Medium Priority) ---
-    # These are useful for re-uploading videos that lose live_event_id but have consistent timing.
-    # IMPORTANT: Define time_ranges in UTC. CST (UTC-5) is 5 hours ahead of UTC.
-    "DayTime_Worship_Sunday": {
-        "name": "Sunday Worship",
-        "folder_key": "Worship Services",
-        "day_of_week": [6], # Sunday
-        "time_ranges": [("14:00", "18:00")]
-    },
-    "DayTime_Memorials_Weddings_Weekday": {
-        "name": "Memorials/Weddings",
-        "folder_key": "Weddings and Memorials",
-        "day_of_week": [0, 1, 2, 3, 4, 5], # Monday to Saturday
-        "time_ranges": [("11:00", "22:00")] # 9AM to 5PM UTC on weekdays
-    },
-    # --- Title Based Rules (Lowest Priority / Fallback)
     "Title_Worship_Traditional": { # Unique identifier for this rule
         "name": "Worship Service - Traditional (Title)",
         "folder_key": "Worship Services",
-        "title_keywords": ["Worship Service", "Traditional"]
+        "title_keywords": ["Worship Service", "Traditional", "Worship"]
     },
     "Title_Worship_Contemporary": { # Unique identifier for this rule
         "name": "Worship Service - Contemporary (Title)",
         "folder_key": "Worship Services",
-        "title_keywords": ["Worship Service", "Contemporary"]
+        "title_keywords": ["Worship Service", "Contemporary", "Worship"]
     },
     "Title_Memorials": {
         "name": "Memorials at St. Andrew",
@@ -279,47 +249,44 @@ def parse_time_string(time_str: str) -> time:
 def determine_destination_folder_id(video_info: dict) -> str | None:
     """
     Determines the correct destination folder ID for a video based on SERVICE_TYPE_RULES.
-    Prioritizes Live Event ID matching, then falls back to day/time, then title keywords.
 
     Args:
-        video_info (dict): Dictionary containing video details (including 'live_event', 'name', 'created_time').
+        video_info (dict): Dictionary containing video details (including 'live_event', 'created_time').
 
     Returns:
         str | None: The destination folder ID if a match is found, otherwise None.
     """
     video_id_for_logging = get_video_id_from_uri(video_info.get('uri'))
-    current_title_lower = video_info.get('name', '').lower() # get title for keyword matching
-    video_created_time_str = video_info.get('created_time')
-    video_created_dt_utc = None
-
+    current_title = video_info.get('name', '').lower() # Get title for keyword matching
     print(f"  Attempting to determine folder for video ID: {video_id_for_logging}")
     print(f"    Video Title: '{video_info.get('name')}'")
 
-    # Parse video creation once for all time-based checks
-    if video_created_time_str:
-        try:
-            video_created_dt_utc = datetime.isoformat(video_created_time.str.replace('Z', '+00:00'))
-            if video_created_dt_utc.tzinfo is None:
-                video_created_dt_utc = video_created_dt_utc.replace(tzinfo=timezone.utc)
-            print(f"   Video creation time (UTC): {video_created_dt_utc.isoformat()}")
-        except ValueError as e:
-            print(f"   Warning: Could not parse created_time '{video_created_time_str}' for video {video_id_for_logging}. Error: {e}.")
-    else:
-        print(f"   Warning: Created time missing for video {video_id_for_logging}.")
-
-    # --- 1. Try Live Event ID Matching First (Highest Priority) ---
+    # --- Try Live Event ID Matching First ---
     live_event_info = video_info.get('live_event')
     if live_event_info and isinstance(live_event_info, dict):
         live_event_uri = live_event_info.get('uri')
         live_event_id = get_live_event_id_from_uri(live_event_uri)
 
         if live_event_id:
-            print(f"   Attempting Live Event ID match. Detected ID: {live_event_id}")
-            for rule_id, rule_details in SERVICE_TYPE_RULES.items():
-                if rule_id == live_event_id and "folder_key" in rule_details:
-                    # Ensure it's an actual event ID rule, not a title/day-time rule
-                    if rule_id.startswith("Title_") or rule_id.startswith("DayTime_"):
-                        continue # Skip if not direct event ID rule
+            print(f"   Detected Live Event ID: {live_event_id}")
+            video_created_time_str = video_info.get('created_time')
+            video_created_dt_utc = None
+            if video_created_time_str:
+                try:
+                    video_created_dt_utc = datetime.fromisoformat(video_created_time_str.replace('Z', '+00:00'))
+                    if video_created_dt_utc.tzinfo is None:
+                        video_created_dt_utc = video_created_dt_utc.reaplce(tzinfo=timezone.utc)
+                    print(f"   Video creation time (UTC): {video_created_dt_utc.isoformat()}")
+                except ValueError as e:
+                    print(f"   Warning: Could not parse created_time '{video_created_time_str}' for video {video_id_for_logging}. Error: {e}")
+
+            for rule_event_id, rule_details in SERVICE_TYPE_RULES.items():
+                # Only check rules that specify an event ID (i.e. not title-based rules)
+                if rule_event_id == live_event_id and "folder_key" in rule_details:
+                    # If this rule is not meant for an event ID (e.g., it's a title-based rule with "Title_" prefix), skip.
+                    # This check implicitly helps prioritize event ID matches.
+                    if rule_event_id.startswith("Title_"):
+                        continue
 
                     print(f"   Matching rule found for Live Event ID {live_event_id}: '{rule_details['name']}'")
 
@@ -341,7 +308,7 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                                     if video_time_utc >= start_time or video_time_utc <= end_time:
                                         matched_time_range = True
                                         break
-                        
+
                         if matched_time_range:
                             folder_key = rule_details["folder_key"]
                             destination_id = DESTINATION_FOLDERS.get("folder_key")
@@ -363,61 +330,14 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                             print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
                             return None
 
-    print(f"    No Live Event ID match found or live_event info is missing/invalid for video ID {video_id_for_logging}. Proceeding to day/time matching.")
-
-    # --- 2. Try Day of Week & Time of Day Matching (Medium Priority)
-    if video_created_dt_utc:
-        video_weekday = video_created_dt_utc.weekday() # 0=Monday, 6=Sunday
-        video_time_utc = video_created_dt_utc.time()
-        print(f"   Attempting Day/Time match. Weekday: {video_weekday}, Time (UTC): {video_time_utc.strftime('%H:%M')}")
-
-        for rule_id, rule_details in SERVICE_TYPE_RULES.items():
-            if "day_of_week" in rule_details and "time_ranges" in rule_details and "folder_key" in rule_details:
-                # Ensure it's a day/time rule, not an event ID or title rule
-                if not rule_id.startswith("DayTime_"):
-                    continue
-
-                if video_weekday in rule_details["day_of_week"]:
-                    print(f"   Video weekday ({video_weekday}) matches rule '{rule_details['name']}. Checking time ranges.")
-                    matched_time_range = False
-                    for start_str, end_str in rule_details["time_ranges"]:
-                        start_time = parse_time_string(start_str)
-                        end_time = parse_time_string(end_str)
-                        print(f"      Rule time range: {start_str} - {end_str}")
-
-                        if start_time <= end_time:
-                            if start_time <=- video_time_utc <= end_time:
-                                matched_time_range = True
-                                break
-                        else:
-                            if video_time_utc >= start_time or video_time_utc <= end_time:
-                                matched_time_range = True
-                                break
-
-                    if matched_time_range:
-                        folder_key = rule_details["folder_key"]
-                        destination_id = DESTINATION_FOLDERS.get(folder_key)
-                        if destination_id:
-                            print(f"   Video matches day/time rule. Destination folder: '{folder_key}' (ID: {destination_id})")
-                            return destination_id
-                        else:
-                            print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
-                            return None
-                else:
-                    print(f"    Video weekday ({video_weekday}) does not match rule '{rule_details['name']}'.")
-    print(f"    No Day/Time match found for video ID {video_id_for_logging}. Proceeding to title matching.")      
-
-    # --- 3. Fallback to Title Keyword Matching ---
-    print(f"    Attempting title matching for video ID: {video_id_for_logging}")
+    # --- Fallback to Title Keyword Matching if no Live Event ID match ---
+    print(f"   No Live Event ID match found or live_event info is missing/invalid. Attempting title matching...")
     for rule_id, rule_details in SERVICE_TYPE_RULES.items():
+        # Only check rules that specify title_keywords (i.e., not event ID based rules)
         if "title_keywords" in rule_details and "folder_key" in rule_details:
-            # Ensure it's a title-based rule:
-            if not rule_id.startswith("Title_"):
-                continue
-
             all_keywords_match = True
             for keyword in rule_details["title_keywords"]:
-                if keyword.lower() not in current_title_lower:
+                if keyword.lower() not in current_title:
                     all_keywords_match = False
                     break
 
@@ -430,7 +350,7 @@ def determine_destination_folder_id(video_info: dict) -> str | None:
                 else:
                     print(f"   ERROR: Destination folder ID not found for key '{folder_key}' in DESTINATION_FOLDERS.")
                     return None
-    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID, day/time, or title keywords. Skipping sorting.")
+    print(f"   No matching rule found for video ID {video_id_for_logging} based on Live Event ID or title keywords. Skipping sorting.")
     return None # no matching rule found.
 
 def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str) -> bool:
@@ -471,7 +391,7 @@ def add_video_to_folder(video_id: str, destination_folder_id: str, user_id: str)
     except Exception as e:
         print(f" An unexpected error occurred while adding video ID {video_id} to folder {destination_folder_id}: {e}")
     return False
-    
+
 def update_video_title(video_id: str, new_title: str) -> bool:
     """
     Updates the title of a specific video on Vimeo.
@@ -565,7 +485,7 @@ def main():
             pass
         else:
             print(f" Warning: Video ID {video_id} has unexpected parent_folder type: {type(parent_folder_info)}. Not excluding folder based on this.")
-        
+
         if is_excluded_folder:
             continue # Skip this video if its folder is excluded
 
@@ -611,12 +531,15 @@ def main():
                 dt_object = datetime.fromisoformat(upload_date_str.replace('Z', '+00:00'))
                 formatted_date = dt_object.strftime(DATE_FORMAT)
                 print(f"  Formatted date: {formatted_date}")
-                    # Check if the title already contains the date in the new format to avoid duplicates
+
+                # Check if the title already contains the date in the new format to avoid duplicates
+                # This check if more robust to ensure we don't add multiple duplicates
                 if current_title.startswtih(f"({formatted_date})"):
                     print(f"   Video title already contains the date in the new format: '{formatted_date}'. No update needed.")
                     videos_skipped_title_update += 1
                 else:
-                    new_title = f"{current_title} ({formatted_date})"
+                    # FIX: change title format to (YYYY-MM-DD)
+                    new_title = f"{formatted_date} {current_title}"
                     print(f"  New Title will be: '{new_title}'")
                     if update_video_title(video_id, new_title):
                         videos_updated_title_count += 1
@@ -654,7 +577,6 @@ def main():
     print(f"Videos Skipped (title update issues or already dated): {videos_skipped_title_update}")
     print(f"Videos Sorted into Folders: {videos_sorted_count}")
     print(f"Videos Skipped (sorting issues or no rule match): {videos_skipped_sorting}")
-    print("---------------------------")
+    print("---------------------------")More actions
 
 if __name__ == '__main__':
-    main()
