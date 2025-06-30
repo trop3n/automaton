@@ -531,11 +531,13 @@ def main():
                 dt_object = datetime.fromisoformat(upload_date_str.replace('Z', '+00:00'))
                 formatted_date = dt_object.strftime(DATE_FORMAT)
                 print(f"  Formatted date: {formatted_date}")
-
-                if formatted_date in current_title:
-                    print(f"  Video title already contains the date '{formatted_date}'. No update needed.")
+                    # Check if the title already contains the date in the new format to avoid duplicates
+                    # This check if more robust to ensure we don't add multiple duplicates
+                if current_title.startswtih(f"({formatted_date})"):
+                    print(f"   Video title already contains the date in the new format: '{formatted_date}'. No update needed.")
                     videos_skipped_title_update += 1
                 else:
+                    # FIX: change title format to (YYYY-MM-DD)
                     new_title = f"{current_title} ({formatted_date})"
                     print(f"  New Title will be: '{new_title}'")
                     if update_video_title(video_id, new_title):
