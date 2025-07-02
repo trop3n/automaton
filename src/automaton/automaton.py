@@ -20,23 +20,35 @@ TIMEZONE = 'America/Chicago'
 # Time window to check for recent videos (in hours)
 LOOKBACK_HOURS = 48
 
+# --- Folder Configuration ---
+# List of folder IDs to EXCLUDE from processing. This rule is absolute.
+EXCLUDED_FOLDER_IDS = ['11103430', '182762', '8219992']
+
+# Destination folders for categorization
+DESTINATION_FOLDERS = {
+    "Worship Services": '15749517',
+    "Weddings and Memorials": '2478125',
+    "Scott's Classes": '15680946',
+}
+
 def get_vimeo_client(token, key, secret):
     """Initializes and returns the Vimeo client using token, key, and secret."""
     client = VimeoClient(token=token, key=key, secret=secret)
     return client
 
-def get_recent_videos_from_root(client, lookback_hours):
-    """Fetches recent, playable videos and filters for those in the root of the Team Library."""
-    print(f"Fetching videos modified in the last {lookback_hours} hours to find those in the Team Library root...")
+def get_recent_videos(client, lookback_hours):
+    """Fetches all videos recently modified to find candidates for processing."""
+    print(f"Fetching all videos modified in the last {lookback_hours} hours...")
     
     # Calculate the start time for the lookback window
     now_utc = datetime.now(pytz.utc)
     start_time_utc = now_utc - timedelta(hours=lookback_hours)
     
     root_videos = []
+    all_recent_videos = []
     
     try:
-        # --- KEY CHANGE: Sort by modified_time to find recently finished archives ---
+        # Sort by modified_time to find recently finished archive videos
         response = client.get('/me/videos', params={
             'per_page': 100,
             'sort': 'modified_time',
@@ -45,34 +57,33 @@ def get_recent_videos_from_root(client, lookback_hours):
         })
         response.raise_for_status()
         
-        all_recent_videos = response.json().get('data', [])
+        videos = response.json().get('data', [])
         
-        for video in all_recent_videos:
-            # --- KEY CHANGE: Filter by modified_time instead of created_time ---
+        for video in videos:
             modified_time_str = video.get('modified_time')
             if not modified_time_str:
                 continue
 
             modified_time_utc = datetime.fromisoformat(modified_time_str.replace('Z', '+00:00'))
             if modified_time_utc >= start_time_utc:
-                # A video is in the root if its parent_folder is null
-                if video.get('parent_folder') is None:
-                    root_videos.append(video)
+                all_recent_videos.append(video)
             else:
-                # Since the list is sorted by modified_time, we can stop once we're outside the window.
+                # Since the list is sorted, we can stop once we're outside the window.
                 break
                         
     except Exception as e:
         print(f"An error occurred while fetching videos: {e}")
 
-    print(f"Found {len(root_videos)} recently modified videos in the Team Library root.")
-    return root_videos
+    print(f"Found {len(all_recent_videos)} recently modified videos to check.")
+    return all_recent_videos
 
-def prepend_date_to_title(client, video_data):
-    """Prepends the upload date to the video title."""
+def process_video(client, video_data):
+    """Prepends the date to the title, and moves the video."""
     current_title = video_data.get('name', '')
+    original_title = current_title # Keep the original title for keyword matching
     
-    # The date in the title should be the CREATION date of the event, not the modification date.
+    # --- 1. Prepend Date ---
+    # The date in the title should be the CREATION date of the event.
     upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
     local_tz = pytz.timezone(TIMEZONE)
     upload_time_local = upload_time_utc.astimezone(local_tz)
@@ -83,15 +94,48 @@ def prepend_date_to_title(client, video_data):
     print(f"  - Updating title to: '{new_title}'")
     
     try:
-        # Make the API call to update the video's name
         client.patch(video_data['uri'], data={'name': new_title})
         print("  - Successfully updated title.")
     except Exception as e:
         print(f"  - An error occurred while updating the title: {e}")
+        return # Stop processing this video if renaming fails
+
+    # --- 2. Categorize and Move ---
+    video_title_lower = original_title.lower()
+    category_folder_name = None
+
+    if 'worship' in video_title_lower or 'contemporary' in video_title_lower or 'traditional' in video_title_lower:
+        category_folder_name = "Worship Services"
+    elif 'memorial' in video_title_lower or 'wedding' in video_title_lower:
+        category_folder_name = "Weddings and Memorials"
+    elif "scott" in video_title_lower or "class" in video_title_lower:
+        category_folder_name = "Scott's Classes"
+
+    if category_folder_name:
+        folder_id = DESTINATION_FOLDERS.get(category_folder_name)
+        if folder_id:
+            print(f"  - Categorized as '{category_folder_name}'. Moving to folder ID {folder_id}.")
+            try:
+                user_response = client.get('/me')
+                user_uri = user_response.json()['uri']
+                project_uri = f"{user_uri}/projects/{folder_id}"
+                video_uri_id = video_data['uri'].split('/')[-1]
+                
+                move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
+                if move_response.status_code == 204:
+                    print(f"  - Successfully moved video.")
+                else:
+                    print(f"  - Error moving video: {move_response.status_code} - {move_response.text}")
+            except Exception as e:
+                print(f"  - An error occurred while moving the video: {e}")
+        else:
+            print(f"  - Could not find a folder ID for category '{category_folder_name}'.")
+    else:
+        print("  - No categorization rule matched based on title. Video will remain in the root library.")
 
 def main():
     """Main function to run the Vimeo video management script."""
-    print("--- Starting Vimeo Date Prepend Script ---")
+    print("--- Starting Vimeo Automation Script ---")
     
     if not all([VIMEO_ACCESS_TOKEN, VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET]):
         print("ERROR: Vimeo credentials are not fully configured.")
@@ -106,30 +150,47 @@ def main():
         return
     print(f"Successfully connected to Vimeo as: {user_response.json().get('name')}")
 
-    videos_to_process = get_recent_videos_from_root(client, LOOKBACK_HOURS)
+    # The function now gets all recent videos, not just those in the root.
+    videos_to_check = get_recent_videos(client, LOOKBACK_HOURS)
 
-    if not videos_to_process:
-        print("No videos found to process.")
+    if not videos_to_check:
+        print("No new videos found to process.")
     else:
-        for video in videos_to_process:
+        for video in videos_to_check:
             print("\n" + "-"*20)
-            print(f"Processing video: {video['name']} ({video['uri']})")
+            print(f"Checking video: {video['name']} ({video['uri']})")
 
             # --- FINALIZED CHECK ---
-            # Rule 1: Only process playable videos. This filters out "phantom" live objects.
+            # Rule 1: Only process playable videos.
             if not video.get('is_playable'):
                 print("  - Skipping: Video is not playable (likely a phantom live event object).")
                 continue
 
-            # Rule 2: If the title already starts with a date, skip this video.
+            # Get parent folder info for exclusion checks
+            parent_folder = video.get('parent_folder')
+            parent_folder_id = None
+            if parent_folder:
+                parent_folder_id = parent_folder['uri'].split('/')[-1]
+
+            # Rule 2: Skip if the video is in an excluded folder.
+            if parent_folder_id and parent_folder_id in EXCLUDED_FOLDER_IDS:
+                print(f"  - Skipping: Video is in an excluded folder ('{parent_folder.get('name')}').")
+                continue
+
+            # Rule 3: Only process videos in the Team Library (root).
+            if parent_folder is not None:
+                print(f"  - Skipping: Video is not in the Team Library root (it's in '{parent_folder.get('name')}').")
+                continue
+            # Rule 4: If the title already starts with a date, skip this video.
             current_title = video.get('name', '')
             date_pattern = r'^\d{4}-\d{2}-\d{2} - '
             if re.match(date_pattern, current_title):
                 print(f"  - Skipping: Title already has a date prepended.")
                 continue
             
-            # If the video is playable and not already renamed, prepend the date.
-            prepend_date_to_title(client, video)
+            # If the video passes all checks, process it.
+            print("  - Video is valid for processing.")
+            process_video(client, video)
 
     print("\n--- Script Finished ---")
 
