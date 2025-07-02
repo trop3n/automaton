@@ -26,8 +26,8 @@ def get_vimeo_client(token, key, secret):
     return client
 
 def get_recent_videos_from_root(client, lookback_hours):
-    """Fetches recent videos and filters for those in the root of the Team Library."""
-    print(f"Fetching all recent videos to find those in the Team Library (root) uploaded in the last {lookback_hours} hours...")
+    """Fetches recent, playable videos and filters for those in the root of the Team Library."""
+    print(f"Fetching videos modified in the last {lookback_hours} hours to find those in the Team Library root...")
     
     # Calculate the start time for the lookback window
     now_utc = datetime.now(pytz.utc)
@@ -36,41 +36,43 @@ def get_recent_videos_from_root(client, lookback_hours):
     root_videos = []
     
     try:
-        # Fetch all recent videos from the user's account
-        # --- DIAGNOSTIC: Added 'live.status' to the requested fields ---
+        # --- KEY CHANGE: Sort by modified_time to find recently finished archives ---
         response = client.get('/me/videos', params={
             'per_page': 100,
-            'sort': 'date',
+            'sort': 'modified_time',
             'direction': 'desc',
-            'fields': 'uri,name,created_time,type,parent_folder,live.status'
+            'fields': 'uri,name,created_time,modified_time,parent_folder,is_playable'
         })
         response.raise_for_status()
         
         all_recent_videos = response.json().get('data', [])
         
         for video in all_recent_videos:
-            # Check if the video's creation time is within our lookback window
-            created_time_str = video.get('created_time')
-            if not created_time_str:
+            # --- KEY CHANGE: Filter by modified_time instead of created_time ---
+            modified_time_str = video.get('modified_time')
+            if not modified_time_str:
                 continue
 
-            created_time_utc = datetime.fromisoformat(created_time_str.replace('Z', '+00:00'))
-            if created_time_utc >= start_time_utc:
+            modified_time_utc = datetime.fromisoformat(modified_time_str.replace('Z', '+00:00'))
+            if modified_time_utc >= start_time_utc:
                 # A video is in the root if its parent_folder is null
                 if video.get('parent_folder') is None:
                     root_videos.append(video)
+            else:
+                # Since the list is sorted by modified_time, we can stop once we're outside the window.
+                break
                         
     except Exception as e:
         print(f"An error occurred while fetching videos: {e}")
 
-    print(f"Found {len(root_videos)} recent videos in the Team Library root.")
+    print(f"Found {len(root_videos)} recently modified videos in the Team Library root.")
     return root_videos
 
 def prepend_date_to_title(client, video_data):
     """Prepends the upload date to the video title."""
     current_title = video_data.get('name', '')
     
-    # Get the upload date and format it
+    # The date in the title should be the CREATION date of the event, not the modification date.
     upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
     local_tz = pytz.timezone(TIMEZONE)
     upload_time_local = upload_time_utc.astimezone(local_tz)
@@ -111,21 +113,22 @@ def main():
     else:
         for video in videos_to_process:
             print("\n" + "-"*20)
-            
-            # --- DIAGNOSTIC PRINT ---
-            live_status = video.get('live', {}).get('status') if video.get('live') else 'Not a live video'
-            print(f"Processing video: {video['name']} ({video['uri']}) with live.status: '{live_status}'")
+            print(f"Processing video: {video['name']} ({video['uri']})")
 
-            # --- NEW CHECK ---
-            # If the title already starts with a date, skip this video.
+            # --- FINALIZED CHECK ---
+            # Rule 1: Only process playable videos. This filters out "phantom" live objects.
+            if not video.get('is_playable'):
+                print("  - Skipping: Video is not playable (likely a phantom live event object).")
+                continue
+
+            # Rule 2: If the title already starts with a date, skip this video.
             current_title = video.get('name', '')
             date_pattern = r'^\d{4}-\d{2}-\d{2} - '
             if re.match(date_pattern, current_title):
                 print(f"  - Skipping: Title already has a date prepended.")
                 continue
             
-            # We will add a filter here once we know the correct status to look for.
-            # For now, it will process everything it finds to gather data.
+            # If the video is playable and not already renamed, prepend the date.
             prepend_date_to_title(client, video)
 
     print("\n--- Script Finished ---")
