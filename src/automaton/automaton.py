@@ -44,11 +44,10 @@ def get_recent_videos(client, lookback_hours):
     now_utc = datetime.now(pytz.utc)
     start_time_utc = now_utc - timedelta(hours=lookback_hours)
     
-    root_videos = []
     all_recent_videos = []
     
     try:
-        # Sort by modified_time to find recently finished archive videos
+        # Sort by modified_time to find recently finished archives
         response = client.get('/me/videos', params={
             'per_page': 100,
             'sort': 'modified_time',
@@ -78,29 +77,36 @@ def get_recent_videos(client, lookback_hours):
     return all_recent_videos
 
 def process_video(client, video_data):
-    """Prepends the date to the title, and moves the video."""
+    """Prepends date if needed, then categorizes and moves the video."""
     current_title = video_data.get('name', '')
     original_title = current_title # Keep the original title for keyword matching
-    
-    # --- 1. Prepend Date ---
-    # The date in the title should be the CREATION date of the event.
-    upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
-    local_tz = pytz.timezone(TIMEZONE)
-    upload_time_local = upload_time_utc.astimezone(local_tz)
-    date_str = upload_time_local.strftime('%Y-%m-%d')
-    
-    new_title = f"{date_str} - {current_title}"
-    
-    print(f"  - Updating title to: '{new_title}'")
-    
-    try:
-        client.patch(video_data['uri'], data={'name': new_title})
-        print("  - Successfully updated title.")
-    except Exception as e:
-        print(f"  - An error occurred while updating the title: {e}")
-        return # Stop processing this video if renaming fails
+
+    # --- 1. Prepend Date (if necessary) ---
+    date_pattern = r'^\d{4}-\d{2}-\d{2} - '
+    if not re.match(date_pattern, current_title):
+        print("  - Prepending date to title...")
+        # The date in the title should be the CREATION date of the event.
+        upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
+        local_tz = pytz.timezone(TIMEZONE)
+        upload_time_local = upload_time_utc.astimezone(local_tz)
+        date_str = upload_time_local.strftime('%Y-%m-%d')
+        
+        new_title = f"{date_str} - {current_title}"
+        
+        print(f"    - Updating title to: '{new_title}'")
+        
+        try:
+            client.patch(video_data['uri'], data={'name': new_title})
+            print("    - Successfully updated title.")
+        except Exception as e:
+            print(f"    - An error occurred while updating the title: {e}")
+            return # Stop processing this video if renaming fails
+    else:
+        print("  - Skipping rename: Title already has a date prepended.")
+
 
     # --- 2. Categorize and Move ---
+    print("  - Checking categorization for moving...")
     video_title_lower = original_title.lower()
     category_folder_name = None
 
@@ -114,7 +120,7 @@ def process_video(client, video_data):
     if category_folder_name:
         folder_id = DESTINATION_FOLDERS.get(category_folder_name)
         if folder_id:
-            print(f"  - Categorized as '{category_folder_name}'. Moving to folder ID {folder_id}.")
+            print(f"    - Categorized as '{category_folder_name}'. Moving to folder ID {folder_id}.")
             try:
                 user_response = client.get('/me')
                 user_uri = user_response.json()['uri']
@@ -123,15 +129,16 @@ def process_video(client, video_data):
                 
                 move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
                 if move_response.status_code == 204:
-                    print(f"  - Successfully moved video.")
+                    print(f"    - Successfully moved video.")
                 else:
-                    print(f"  - Error moving video: {move_response.status_code} - {move_response.text}")
+                    print(f"    - Error moving video: {move_response.status_code} - {move_response.text}")
             except Exception as e:
-                print(f"  - An error occurred while moving the video: {e}")
+                print(f"    - An error occurred while moving the video: {e}")
         else:
-            print(f"  - Could not find a folder ID for category '{category_folder_name}'.")
+            print(f"    - Could not find a folder ID for category '{category_folder_name}'.")
     else:
-        print("  - No categorization rule matched based on title. Video will remain in the root library.")
+        print("    - No categorization rule matched. Video will not be moved.")
+
 
 def main():
     """Main function to run the Vimeo video management script."""
@@ -160,7 +167,6 @@ def main():
             print("\n" + "-"*20)
             print(f"Checking video: {video['name']} ({video['uri']})")
 
-            # --- FINALIZED CHECK ---
             # Rule 1: Only process playable videos.
             if not video.get('is_playable'):
                 print("  - Skipping: Video is not playable (likely a phantom live event object).")
@@ -181,15 +187,9 @@ def main():
             if parent_folder is not None:
                 print(f"  - Skipping: Video is not in the Team Library root (it's in '{parent_folder.get('name')}').")
                 continue
-            # Rule 4: If the title already starts with a date, skip this video.
-            current_title = video.get('name', '')
-            date_pattern = r'^\d{4}-\d{2}-\d{2} - '
-            if re.match(date_pattern, current_title):
-                print(f"  - Skipping: Title already has a date prepended.")
-                continue
             
             # If the video passes all checks, process it.
-            print("  - Video is valid for processing.")
+            # The process_video function will now handle the date check internally.
             process_video(client, video)
 
     print("\n--- Script Finished ---")
