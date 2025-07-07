@@ -85,7 +85,6 @@ def process_video(client, video_data):
     date_pattern = r'^\d{4}-\d{2}-\d{2} - '
     if not re.match(date_pattern, current_title):
         print("  - Prepending date to title...")
-        # The date in the title should be the CREATION date of the event.
         upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
         local_tz = pytz.timezone(TIMEZONE)
         upload_time_local = upload_time_utc.astimezone(local_tz)
@@ -110,6 +109,7 @@ def process_video(client, video_data):
     video_title_lower = original_title.lower()
     category_folder_name = None
 
+    # First, do a tentative categorization based on title keywords.
     if 'worship' in video_title_lower or 'contemporary' in video_title_lower or 'traditional' in video_title_lower:
         category_folder_name = "Worship Services"
     elif 'memorial' in video_title_lower or 'wedding' in video_title_lower:
@@ -117,10 +117,34 @@ def process_video(client, video_data):
     elif "scott" in video_title_lower or "class" in video_title_lower:
         category_folder_name = "Scott's Classes"
 
+    # --- NEW: Time-based Veto Logic ---
+    # If the title makes us think it's a Worship Service, we double-check the time.
+    if category_folder_name == "Worship Services":
+        print("    - Tentatively categorized as Worship. Verifying time...")
+        upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
+        local_tz = pytz.timezone(TIMEZONE)
+        upload_time_local = upload_time_utc.astimezone(local_tz)
+        
+        day_of_week = upload_time_local.weekday()  # Monday is 0, Sunday is 6
+        hour = upload_time_local.hour
+
+        # Define the valid time windows for a real Worship Service
+        is_saturday_worship = (day_of_week == 5 and (hour == 18 and upload_time_local.minute >= 30 or hour == 19))
+        is_sunday_worship = (day_of_week == 6 and 10 <= hour < 14)
+
+        # If the time is OUTSIDE the normal worship hours, override the category.
+        if not (is_saturday_worship or is_sunday_worship):
+            print("      - Time is outside normal worship hours. Overriding category to 'Weddings and Memorials'.")
+            category_folder_name = "Weddings and Memorials"
+        else:
+            print("      - Time is within normal worship hours. Category confirmed.")
+    
+    # --- End of New Logic ---
+
     if category_folder_name:
         folder_id = DESTINATION_FOLDERS.get(category_folder_name)
         if folder_id:
-            print(f"    - Categorized as '{category_folder_name}'. Moving to folder ID {folder_id}.")
+            print(f"    - Final Category: '{category_folder_name}'. Moving to folder ID {folder_id}.")
             try:
                 user_response = client.get('/me')
                 user_uri = user_response.json()['uri']
@@ -185,11 +209,15 @@ def main():
 
             # Rule 3: Only process videos in the Team Library (root).
             if parent_folder is not None:
-                print(f"  - Skipping: Video is not in the Team Library root (it's in '{parent_folder.get('name')}').")
+                # Also check if it's already in a destination folder
+                if parent_folder_id in DESTINATION_FOLDERS.values():
+                     print(f"  - Skipping: Video is already in a destination folder ('{parent_folder.get('name')}').")
+                else:
+                    print(f"  - Skipping: Video is not in the Team Library root (it's in '{parent_folder.get('name')}').")
                 continue
             
             # If the video passes all checks, process it.
-            # The process_video function will now handle the date check internally.
+            print("  - Video is valid for processing.")
             process_video(client, video)
 
     print("\n--- Script Finished ---")
