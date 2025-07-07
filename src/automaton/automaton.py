@@ -77,7 +77,11 @@ def get_recent_videos(client, lookback_hours):
     return all_recent_videos
 
 def process_video(client, video_data):
-    """Prepends date if needed, then categorizes and moves the video."""
+    """
+    Prepends date if needed, then categorizes and moves the video.
+    Returns a dictionary with the results of the operations.
+    """
+    stats = {'title_updated': False, 'moved': False}
     current_title = video_data.get('name', '')
     original_title = current_title # Keep the original title for keyword matching
 
@@ -97,9 +101,10 @@ def process_video(client, video_data):
         try:
             client.patch(video_data['uri'], data={'name': new_title})
             print("    - Successfully updated title.")
+            stats['title_updated'] = True
         except Exception as e:
             print(f"    - An error occurred while updating the title: {e}")
-            return # Stop processing this video if renaming fails
+            return stats # Return immediately on failure
     else:
         print("  - Skipping rename: Title already has a date prepended.")
 
@@ -117,8 +122,7 @@ def process_video(client, video_data):
     elif "scott" in video_title_lower or "class" in video_title_lower:
         category_folder_name = "Scott's Classes"
 
-    # --- NEW: Time-based Veto Logic ---
-    # If the title makes us think it's a Worship Service, we double-check the time.
+    # --- Time-based Veto Logic ---
     if category_folder_name == "Worship Services":
         print("    - Tentatively categorized as Worship. Verifying time...")
         upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
@@ -132,15 +136,12 @@ def process_video(client, video_data):
         is_saturday_worship = (day_of_week == 5 and (hour == 18 and upload_time_local.minute >= 30 or hour == 19))
         is_sunday_worship = (day_of_week == 6 and 10 <= hour < 14)
 
-        # If the time is OUTSIDE the normal worship hours, override the category.
         if not (is_saturday_worship or is_sunday_worship):
             print("      - Time is outside normal worship hours. Overriding category to 'Weddings and Memorials'.")
             category_folder_name = "Weddings and Memorials"
         else:
             print("      - Time is within normal worship hours. Category confirmed.")
     
-    # --- End of New Logic ---
-
     if category_folder_name:
         folder_id = DESTINATION_FOLDERS.get(category_folder_name)
         if folder_id:
@@ -154,6 +155,7 @@ def process_video(client, video_data):
                 move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
                 if move_response.status_code == 204:
                     print(f"    - Successfully moved video.")
+                    stats['moved'] = True
                 else:
                     print(f"    - Error moving video: {move_response.status_code} - {move_response.text}")
             except Exception as e:
@@ -162,6 +164,8 @@ def process_video(client, video_data):
             print(f"    - Could not find a folder ID for category '{category_folder_name}'.")
     else:
         print("    - No categorization rule matched. Video will not be moved.")
+    
+    return stats
 
 
 def main():
@@ -181,8 +185,13 @@ def main():
         return
     print(f"Successfully connected to Vimeo as: {user_response.json().get('name')}")
 
-    # The function now gets all recent videos, not just those in the root.
     videos_to_check = get_recent_videos(client, LOOKBACK_HOURS)
+
+    # --- Initialize Counters ---
+    scanned_count = len(videos_to_check)
+    processed_count = 0
+    updated_count = 0
+    moved_count = 0
 
     if not videos_to_check:
         print("No new videos found to process.")
@@ -218,8 +227,21 @@ def main():
             
             # If the video passes all checks, process it.
             print("  - Video is valid for processing.")
-            process_video(client, video)
+            processed_count += 1
+            stats = process_video(client, video)
+            if stats['title_updated']:
+                updated_count += 1
+            if stats['moved']:
+                moved_count += 1
 
+    # --- Print Final Summary ---
+    print("\n" + "="*30)
+    print("--- Processing Summary ---")
+    print(f"Videos Scanned: {scanned_count}")
+    print(f"Videos Processed: {processed_count}")
+    print(f"Titles Updated: {updated_count}")
+    print(f"Videos Moved: {moved_count}")
+    print("="*30)
     print("\n--- Script Finished ---")
 
 if __name__ == "__main__":
