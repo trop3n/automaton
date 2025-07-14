@@ -127,3 +127,36 @@ def find_closest_event_in_cache(video_creation_time_utc, events_cache):
     # Confidence Check: ensure the best match is within a reasonable timeframe
     if best_match and smallest_diff.total_seconds() / 60 <= MAX_TIME_DIFFERENCE_MINUTES:
         print(f"  - Found closest event: '{best_match['Event_Title']}' (Time difference: {int(smallest_diff.total_seconds() / 60)} min).")
+        return best_match
+    else:
+        print(f"  - No event found with the {MAX_TIME_DIFFERENCE_MINUTES} minute threshold.")
+        return None
+
+def get_recent_videos(client, lookback_hours):
+    """Fetches all videos recently modified to find candidates for processing."""
+    print(f"Fetching Vimeo videos modified in the last {lookback_hours} hours...")
+    start_time_utc = datetime.now(pytz.utc) - timedelta(hours=lookback_hours)
+    all_recent_videos = []
+    try:
+        response = client.get('/me/videos', params={
+            'per_page': 100, 'sort': 'modified_time', 'direction': 'desc',
+            'fields': 'uri,name,created_time,modified_time,parent_folder,is_playable'
+        })
+        response.raise_for_status()
+        videos = response.json().get('data', [])
+        for video in videos:
+            modified_time_utc = datetime.isoformat(video['modified_time'].replace('Z', '+00:00'))
+            if modified_time_utc >= start_time_utc:
+                all_recent_videos.append(video)
+            else:
+                break
+    except Exception as e:
+        print(f"ERROR: An error occurred while fetching videos: {e}")
+    print(f"Found {len(all_recent_videos)} recently modified videos to check.")
+    return all_recent_videos
+
+def process_video(client, video_data, events_cache):
+    """Processes a video by matching with Ministry Platform first, then moving it."""
+    stats = {'title_updated': False, 'moved': False}
+    video_uri = video_data['uri']
+    
