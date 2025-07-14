@@ -16,7 +16,7 @@ VIMEO_CLIENT_ID = os.environ.get('VIMEO_CLIENT_ID')
 VIMEO_CLIENT_SECRET = os.environ.get('VIMEO_CLIENT_SECRET')
 
 # --- Ministry Platform API Integration ---
-MINISTRY_PLATFORM_API_ENDPOINT = os.environ.get('MP_API_ENDPOINT')
+MP_API_ENDPOINT = os.environ.get('MP_API_ENDPOINT')
 MP_CLIENT_ID = os.environ.get('MP_CLIENT_ID')
 MP_CLIENT_SECRET = os.environ.get('MP_CLIENT_SECRET')
 
@@ -51,6 +51,32 @@ def get_vimeo_client(token, key, secret):
     client = VimeoClient(token=token, key=key, secret=secret)
     return client
 
+def get_mp_token():
+    """Authenticates with Ministry Platform and returns an Access Token"""
+    if not all ([MP_API_ENDPOINT, MP_CLIENT_ID, MP_CLIENT_SECRET]):
+        print("INFO: Ministry Platform credentials are not configured. Skipping MP integration.")
+        return None
+    try:
+        print("Attempting to get MP Token...")
+        token_url = f"{MP_API_ENDPOINT}/oauth/connect/token"
+        payload = {
+            'grant_type': 'client_credentials',
+            'scope': 'http://www.thinkministry.com/dataplatform/scopes/all',
+            'client_id': MP_CLIENT_ID,
+            'client_secret': MP_CLIENT_SECRET
+        }
+        response = requests.post(token_url, data=payload, timeout=10)
+        response.raise_for_status()
+        print("Successfully authenticated with Ministry Platform.")
+        return response.json().get('access_token')
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: Failed to get Ministry Platform token: {e}")
+        return None
+
+def get_mp_events_in_range(token, lookback_hours):
+    """Fetches all streamable events from Ministry Platform in a given time window."""
+    if not token:
+        return []
 def get_recent_videos(client, lookback_hours):
     """Fetches all videos recently modified to find candidates for processing."""
     print(f"Fetching all videos modified in the last {lookback_hours} hours...")
