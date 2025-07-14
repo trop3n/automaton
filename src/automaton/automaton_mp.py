@@ -110,3 +110,20 @@ def get_mp_events_in_range(token, lookback_hours):
         return []
 
 # --- Core Logic ---
+def find_closest_event_in_cache(video_creation_time_utc, events_cache):
+    """Finds the event with the minimum time difference from a list of cached events."""
+    if not events_cache:
+        return None
+
+    best_match = None
+    smallest_diff = timedelta.max
+
+    for event in events_cache:
+        time_diff = abs(video_creation_time_utc- event['Event_Start_Date_dt'])
+        if time_diff < smallest_diff:
+            smallest_diff = time_diff
+            best_match = event
+
+    # Confidence Check: ensure the best match is within a reasonable timeframe
+    if best_match and smallest_diff.total_seconds() / 60 <= MAX_TIME_DIFFERENCE_MINUTES:
+        print(f"  - Found closest event: '{best_match['Event_Title']}' (Time difference: {int(smallest_diff.total_seconds() / 60)} min).")
