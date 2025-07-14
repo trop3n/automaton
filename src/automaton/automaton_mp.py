@@ -159,4 +159,57 @@ def process_video(client, video_data, events_cache):
     """Processes a video by matching with Ministry Platform first, then moving it."""
     stats = {'title_updated': False, 'moved': False}
     video_uri = video_data['uri']
+
+    # --- 1. Match with Ministry Platform Event Cache ---
+    upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
+    mp_event = find_closest_event_in_cache(upload_time_utc, events_cache)
+
+    if not mp_event:
+        print("  - No definitive MP event found. Video requires manual review.")
+        return stats # Stop processing video
+
+    # --- 2. Rename Title Based on MP Event ---
+    event_title = mp_event['Event_Title']
+    event_date_local = mp_event['Event_Start_Date_dt'].astimezone(pytz.timezone(TIMEZONE))
+    date_str = event_date_local.strftime('%Y-%m-%d')
+    new_title = f"{date_str} - {event_title}"
+
+    print(f"    - Updating Title based on MP event to: '{new_title}'")
+    try:
+        client.patch(video_uri, data={'name': new_title})
+        stats['title_updated'] = True
+    except Exception as e:
+        print(f"    - ERROR: an error occurred while updating the title: {e}")
+        return stats
+
+    # --- 3. Categorize and Move based on MP Event Title ---
+    print("  - Categorizing based on MP Event Title...")
+    target_folder_name = None
+    for keyword, folder_name in MP_CATEGORY_TO_VIMEO_FOLDER_NAME.items():
+        if keyword.lower() in event_title.lower():
+            target_folder_name = folder_name
+            break
+
+    if target_folder_name:
+        folder_id = DESTINATION_FOLDERS.get(target_folder_name)
+        if folder_id:
+            print(f"    - Final Category: '{target_folder_name}'. Moving to folder ID {folder_id}.")
+            try:
+                user_uri = client.get('/me').json()['uri']
+                project_uri = f"{user_uri}/projects/{folder_id}"
+                video_uri_id = video_uri.split('/')[-1]
+                move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
+                if move_response.status_code = 204:
+                    print("    - Successfully moved video.")
+                    stats['moved'] = True
+                else:
+                    print(f"     - ERROR moving video: {move_response.status_code} - {move_response.text}")
+            except Exception as e:
+                print(f"    - ERROR: An error occurred while moving the video: {e}")
+    else:
+        print("    - No categorization rule matched for the event title. Video will not be moved.")
+
+    return stats
+
+def main():
     
