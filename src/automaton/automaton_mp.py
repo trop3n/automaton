@@ -199,7 +199,7 @@ def process_video(client, video_data, events_cache):
                 project_uri = f"{user_uri}/projects/{folder_id}"
                 video_uri_id = video_uri.split('/')[-1]
                 move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
-                if move_response.status_code = 204:
+                if move_response.status_code == 204:
                     print("    - Successfully moved video.")
                     stats['moved'] = True
                 else:
@@ -212,4 +212,63 @@ def process_video(client, video_data, events_cache):
     return stats
 
 def main():
-    
+    """Main function to run the Vimeo video management script."""
+    print("--- Starting Vimeo Automation Script ---")
+
+    if not all([VIMEO_ACCESS_TOKEN, VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET])
+        print("ERROR: Vimeo credentials are not fully configured.")
+        return
+
+    client = get_vimeo_client(VIMEO_ACCESS_TOKEN, VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET)
+    user_response = client.get('/me')
+    if user_response.status_code != 200:
+        print(f"ERROR: Failed to connect to Vimeo API. Status: {user_response.status_code}")
+        return
+    print(f"Successfully connected to Vimeo as: {user_response.json().get('name')}")
+
+    # --- GET MP Token and fetch Events once ---
+    mp_token = get_mp_token()
+    events_cache = get_mp_events_in_range(mp_token, LOOKBACK_HOURS)
+
+    videos_to_check = get_recent_videos(client, LOOKBACK_HOURS)
+    scanned_count, processed_count, updated_count, moved_count = len(videos_to_check), 0, 0, 0
+
+    if not videos_to_check:
+        print("No new videos found to process.")
+    else:
+        for video in videos_to_check:
+            print("\n" + "-"*20)
+            print(f"Checking video: {video['name']} ({video['uri']})")
+
+            if not video.get('is_playable'):
+                print("  - Skipping: Video is not playable.")
+                continue
+            
+            parent_folder = video.get('parent_folder')
+            if parent_folder:
+                parent_folder_id = parent_folder['uri'].split('/')[-1]
+                if parent_folder_id in EXCLUDED_FOLDER_IDS:
+                    print(f"  - Skipping: Video is in an excluded folder ('{parent_folder.get('name')}').")
+                    continue
+                if parent_folder_iod in DESTINATION_FOLDERS.values():
+                    print(f"  - Skipping: Video is already in a destination folder ('{Parent_folder.get('name')}').")
+                    continue
+                print(f"  - Skipping: Video is not in the Team Library root (it's in '{parent_folder.get('name')}').")
+                continue
+
+            print("  - Video is valid for processing.")
+            processed_count += 1
+            stats = process_video(client, video, events_cache)
+            if stats['title_updated']: updated_count += 1
+            if stats['moved']: moved_count += 1
+
+    # --- Print Final Summary --- 
+    print("\n + "="*30 + "\n--- Processing Summary ---\n" +
+          f"Videos Scanned: {scanned_count}\n" +
+          f"Videos Processed: {processed_count}\n" +
+          f"Titles Updated: {updated_count}\n" +
+          f"Videos Moved: {moved_count}\n" + "="*30)
+    print("\n--- Script Finished ---")
+
+if __name__ == '__main__':
+    main()
