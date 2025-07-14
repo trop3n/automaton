@@ -215,7 +215,7 @@ def main():
     """Main function to run the Vimeo video management script."""
     print("--- Starting Vimeo Automation Script ---")
 
-    if not all([VIMEO_ACCESS_TOKEN, VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET])
+    if not all([VIMEO_ACCESS_TOKEN, VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET]):
         print("ERROR: Vimeo credentials are not fully configured.")
         return
 
@@ -263,7 +263,7 @@ def main():
             if stats['moved']: moved_count += 1
 
     # --- Print Final Summary --- 
-    print("\n + "="*30 + "\n--- Processing Summary ---\n" +
+    print("\n" + "="*30 + "\n--- Processing Summary ---\n" +
           f"Videos Scanned: {scanned_count}\n" +
           f"Videos Processed: {processed_count}\n" +
           f"Titles Updated: {updated_count}\n" +
