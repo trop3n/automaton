@@ -113,9 +113,12 @@ def process_video(client, video_data):
     else:
         print("  - Skipping rename: Title already has the correct date prepended.")
 
+
     # --- 2. Categorize and Move ---
     print("  - Checking categorization for moving...")
-    video_title_lower = original_title.lower()
+    # Use the original title (with any incorrect date stripped) for categorization
+    original_title_for_categorization = re.sub(date_pattern, '', current_title)
+    video_title_lower = original_title_for_categorization.lower()
     category_folder_name = None
 
     # First, do a tentative categorization based on title keywords.
@@ -129,10 +132,6 @@ def process_video(client, video_data):
     # --- Time-based Veto Logic ---
     if category_folder_name == "Worship Services":
         print("    - Tentatively categorized as Worship. Verifying time...")
-        upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
-        local_tz = pytz.timezone(TIMEZONE)
-        upload_time_local = upload_time_utc.astimezone(local_tz)
-        
         day_of_week = upload_time_local.weekday()  # Monday is 0, Sunday is 6
         hour = upload_time_local.hour
 
