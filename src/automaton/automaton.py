@@ -83,18 +83,23 @@ def process_video(client, video_data):
     """
     stats = {'title_updated': False, 'moved': False}
     current_title = video_data.get('name', '')
-    original_title = current_title # Keep the original title for keyword matching
-
+    
     # --- 1. Prepend Date (if necessary) ---
+    # --- KEY CHANGE: Use modified_time for a more accurate date ---
+    upload_time_utc = datetime.fromisoformat(video_data['modified_time'].replace('Z', '+00:00'))
+    local_tz = pytz.timezone(TIMEZONE)
+    upload_time_local = upload_time_utc.astimezone(local_tz)
+    correct_date_str = upload_time_local.strftime('%Y-%m-%d')
+    
     date_pattern = r'^\d{4}-\d{2}-\d{2} - '
-    if not re.match(date_pattern, current_title):
-        print("  - Prepending date to title...")
-        upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
-        local_tz = pytz.timezone(TIMEZONE)
-        upload_time_local = upload_time_utc.astimezone(local_tz)
-        date_str = upload_time_local.strftime('%Y-%m-%d')
+    
+    # Check if the title starts with the *correct* date. If not, rename it.
+    if not current_title.startswith(f"{correct_date_str} - "):
+        print("  - Title needs date correction or prepending.")
         
-        new_title = f"{date_str} - {current_title}"
+        # Strip any old, incorrect date before prepending the new one.
+        original_title = re.sub(date_pattern, '', current_title)
+        new_title = f"{correct_date_str} - {original_title}"
         
         print(f"    - Updating title to: '{new_title}'")
         
@@ -106,8 +111,7 @@ def process_video(client, video_data):
             print(f"    - An error occurred while updating the title: {e}")
             return stats # Return immediately on failure
     else:
-        print("  - Skipping rename: Title already has a date prepended.")
-
+        print("  - Skipping rename: Title already has the correct date prepended.")
 
     # --- 2. Categorize and Move ---
     print("  - Checking categorization for moving...")
