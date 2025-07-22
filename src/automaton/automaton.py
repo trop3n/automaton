@@ -78,77 +78,79 @@ def get_recent_videos(client, lookback_hours):
 
 def process_video(client, video_data):
     """
-    Prepends date if needed, then categorizes and moves the video.
+    Determines the correct title and category, then renames and moves the video if necessary.
     Returns a dictionary with the results of the operations.
     """
     stats = {'title_updated': False, 'moved': False}
     current_title = video_data.get('name', '')
     
-    # --- 1. Prepend Date (if necessary) ---
-    # --- KEY CHANGE: Use modified_time for a more accurate date ---
+    # --- 1. Determine Correct Date and Title ---
+    # Use modified_time for a more accurate date of the event
     upload_time_utc = datetime.fromisoformat(video_data['modified_time'].replace('Z', '+00:00'))
     local_tz = pytz.timezone(TIMEZONE)
     upload_time_local = upload_time_utc.astimezone(local_tz)
     correct_date_str = upload_time_local.strftime('%Y-%m-%d')
     
-    date_pattern = r'^\d{4}-\d{2}-\d{2} - '
-    
-    # Check if the title starts with the *correct* date. If not, rename it.
-    if not current_title.startswith(f"{correct_date_str} - "):
-        print("  - Title needs date correction or prepending.")
-        
-        # Strip any old, incorrect date before prepending the new one.
-        original_title = re.sub(date_pattern, '', current_title)
-        new_title = f"{correct_date_str} - {original_title}"
-        
-        print(f"    - Updating title to: '{new_title}'")
-        
-        try:
-            client.patch(video_data['uri'], data={'name': new_title})
-            print("    - Successfully updated title.")
-            stats['title_updated'] = True
-        except Exception as e:
-            print(f"    - An error occurred while updating the title: {e}")
-            return stats # Return immediately on failure
-    else:
-        print("  - Skipping rename: Title already has the correct date prepended.")
-
-
-    # --- 2. Categorize and Move ---
-    print("  - Checking categorization for moving...")
-    # Use the original title (with any incorrect date stripped) for categorization
-    original_title_for_categorization = re.sub(date_pattern, '', current_title)
+    # Strip any old date from the title to get the base for keyword matching
+    original_title_for_categorization = re.sub(r'^\d{4}-\d{2}-\d{2} - ', '', current_title)
     video_title_lower = original_title_for_categorization.lower()
+    
     category_folder_name = None
+    final_title_suffix = None
 
-    # First, do a tentative categorization based on title keywords.
+    # --- 2. Categorization Logic ---
+    # Check for Worship Service first to apply specific time-based naming
     if 'worship' in video_title_lower or 'contemporary' in video_title_lower or 'traditional' in video_title_lower:
         category_folder_name = "Worship Services"
+        day_of_week = upload_time_local.weekday()
+        hour = upload_time_local.hour
+        service_type = "Contemporary" if 'contemporary' in video_title_lower else "Traditional"
+
+        # Saturday 5:30 PM (approx 17:30)
+        if day_of_week == 5 and 17 <= hour < 19:
+            final_title_suffix = "Worship Service - Traditional 5:30 PM"
+        # Sunday 9:30 AM (approx 09:30)
+        elif day_of_week == 6 and 9 <= hour < 11:
+            final_title_suffix = f"Worship Service - {service_type} 9:30 AM"
+        # Sunday 11:00 AM (approx 11:00)
+        elif day_of_week == 6 and 11 <= hour < 13:
+            final_title_suffix = f"Worship Service - {service_type} 11:00 AM"
+        
+        # If title says "Worship" but time doesn't match, it's a Memorial/Wedding
+        if not final_title_suffix:
+            print("  - 'Worship' title found, but time is outside worship hours. Overriding to 'Weddings and Memorials'.")
+            category_folder_name = "Weddings and Memorials"
+            final_title_suffix = "Memorial or Wedding Service"
+    
+    # Check other categories if not a worship service
     elif 'memorial' in video_title_lower or 'wedding' in video_title_lower:
         category_folder_name = "Weddings and Memorials"
+        final_title_suffix = "Memorial or Wedding Service"
     elif "scott" in video_title_lower or "class" in video_title_lower:
         category_folder_name = "Scott's Classes"
+        final_title_suffix = original_title_for_categorization # Use the original title for classes
 
-    # --- Time-based Veto Logic ---
-    if category_folder_name == "Worship Services":
-        print("    - Tentatively categorized as Worship. Verifying time...")
-        day_of_week = upload_time_local.weekday()  # Monday is 0, Sunday is 6
-        hour = upload_time_local.hour
+    # --- 3. Rename and Move ---
+    if category_folder_name and final_title_suffix:
+        new_title = f"{correct_date_str} - {final_title_suffix}"
 
-        # Define the valid time windows for a real Worship Service
-        is_saturday_worship = (day_of_week == 5 and (hour == 18 and upload_time_local.minute >= 30 or hour == 19))
-        is_sunday_worship = (day_of_week == 6 and 10 <= hour < 14)
-
-        if not (is_saturday_worship or is_sunday_worship):
-            print("      - Time is outside normal worship hours. Overriding category to 'Weddings and Memorials'.")
-            category_folder_name = "Weddings and Memorials"
+        # Rename if the current title is not exactly correct
+        if current_title != new_title:
+            print(f"  - Updating title to: '{new_title}'")
+            try:
+                client.patch(video_data['uri'], data={'name': new_title})
+                print("    - Successfully updated title.")
+                stats['title_updated'] = True
+            except Exception as e:
+                print(f"    - An error occurred while updating title: {e}")
+                return stats
         else:
-            print("      - Time is within normal worship hours. Category confirmed.")
-    
-    if category_folder_name:
+            print("  - Skipping rename: Title is already correct.")
+
+        # Move to the correct folder
         folder_id = DESTINATION_FOLDERS.get(category_folder_name)
         if folder_id:
-            print(f"    - Final Category: '{category_folder_name}'. Moving to folder ID {folder_id}.")
+            print(f"  - Moving to folder for '{category_folder_name}' (ID: {folder_id}).")
             try:
                 user_response = client.get('/me')
                 user_uri = user_response.json()['uri']
@@ -157,16 +159,14 @@ def process_video(client, video_data):
                 
                 move_response = client.put(f"{project_uri}/videos/{video_uri_id}")
                 if move_response.status_code == 204:
-                    print(f"    - Successfully moved video.")
+                    print("    - Successfully moved video.")
                     stats['moved'] = True
                 else:
                     print(f"    - Error moving video: {move_response.status_code} - {move_response.text}")
             except Exception as e:
-                print(f"    - An error occurred while moving the video: {e}")
-        else:
-            print(f"    - Could not find a folder ID for category '{category_folder_name}'.")
+                print(f"    - An error occurred while moving video: {e}")
     else:
-        print("    - No categorization rule matched. Video will not be moved.")
+        print("  - No categorization rule matched. Video will not be moved.")
     
     return stats
 
@@ -221,7 +221,6 @@ def main():
 
             # Rule 3: Only process videos in the Team Library (root).
             if parent_folder is not None:
-                # Also check if it's already in a destination folder
                 if parent_folder_id in DESTINATION_FOLDERS.values():
                      print(f"  - Skipping: Video is already in a destination folder ('{parent_folder.get('name')}').")
                 else:
