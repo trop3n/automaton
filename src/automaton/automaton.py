@@ -29,6 +29,7 @@ DESTINATION_FOLDERS = {
     "Worship Services": '15749517',
     "Weddings and Memorials": '2478125',
     "Scott's Classes": '15680946',
+    "The Root Class": '10606776'
 }
 
 def get_vimeo_client(token, key, secret):
