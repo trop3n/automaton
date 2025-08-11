@@ -100,11 +100,12 @@ def process_video(client, video_data):
     final_title_suffix = None
 
     # --- 2. Categorization Logic ---
+    day_of_week = upload_time_local.weekday() # Monday is 0, Sunday is 6
+    hour = upload_time_local.hour
+
     # Check for Worship Service first to apply specific time-based naming
     if 'worship' in video_title_lower or 'contemporary' in video_title_lower or 'traditional' in video_title_lower:
         category_folder_name = "Worship Services"
-        day_of_week = upload_time_local.weekday()
-        hour = upload_time_local.hour
         service_type = "Contemporary" if 'contemporary' in video_title_lower else "Traditional"
 
         # Saturday 5:30 PM (approx 17:30)
@@ -122,6 +123,11 @@ def process_video(client, video_data):
             print("  - 'Worship' title found, but time is outside worship hours. Overriding to 'Weddings and Memorials'.")
             category_folder_name = "Weddings and Memorials"
             final_title_suffix = "Memorial or Wedding Service"
+    
+    # New Rule for The Root Class
+    elif 'capture - piro hall' in video_title_lower and day_of_week == 6:
+        category_folder_name = "The Root Class"
+        final_title_suffix = "0930 - The Root Class"
     
     # Check other categories if not a worship service
     elif 'memorial' in video_title_lower or 'wedding' in video_title_lower:
