@@ -29,7 +29,7 @@ DESTINATION_FOLDERS = {
     "Worship Services": '15749517',
     "Weddings and Memorials": '2478125',
     "Scott's Classes": '15680946',
-    "The Root Class": '10606776'
+    "The Root Class": '10606776',
 }
 
 def get_vimeo_client(token, key, secret):
@@ -102,29 +102,30 @@ def process_video(client, video_data):
     # --- 2. Categorization Logic ---
     day_of_week = upload_time_local.weekday() # Monday is 0, Sunday is 6
     hour = upload_time_local.hour
-
+        
     # Check for Worship Service first to apply specific time-based naming
     if 'worship' in video_title_lower or 'contemporary' in video_title_lower or 'traditional' in video_title_lower:
         category_folder_name = "Worship Services"
         service_type = "Contemporary" if 'contemporary' in video_title_lower else "Traditional"
 
-        # Saturday 5:30 PM (approx 17:30)
-        if day_of_week == 5 and 17 <= hour < 19:
+        # Saturday Service
+        if day_of_week == 5 and 17 <= hour < 20: # Expanded 5pm-8pm window for 5:30 service
             final_title_suffix = "Worship Service - Traditional 5:30 PM"
-        # Sunday 9:30 AM (approx 09:30)
-        elif day_of_week == 6 and 9 <= hour < 11:
-            final_title_suffix = f"Worship Service - {service_type} 9:30 AM"
-        # Sunday 11:00 AM (approx 11:00)
-        elif day_of_week == 6 and 11 <= hour < 13:
-            final_title_suffix = f"Worship Service - {service_type} 11:00 AM"
-        
-        # If title says "Worship" but time doesn't match, it's a Memorial/Wedding
-        if not final_title_suffix:
-            print("  - 'Worship' title found, but time is outside worship hours. Overriding to 'Weddings and Memorials'.")
+        # Sunday Services
+        elif day_of_week == 6:
+            # --- REVISED LOGIC: Use a simple cutoff time for Sunday services ---
+            # This is more robust against video processing delays.
+            if hour < 11:
+                final_title_suffix = f"Worship Service - {service_type} 9:30 AM"
+            else: # Assumes anything processed at or after 11am is the 11am service
+                final_title_suffix = f"Worship Service - {service_type} 11:00 AM"
+        # Weekday "Worship" title -> likely a Memorial/Wedding
+        else:
+            print("  - 'Worship' title found on a weekday. Overriding to 'Weddings and Memorials'.")
             category_folder_name = "Weddings and Memorials"
             final_title_suffix = "Memorial or Wedding Service"
     
-    # New Rule for The Root Class
+    # UPDATED RULE for The Root Class (SUNDAY ONLY)
     elif 'capture - piro hall' in video_title_lower and day_of_week == 6:
         category_folder_name = "The Root Class"
         final_title_suffix = "0930 - The Root Class"
