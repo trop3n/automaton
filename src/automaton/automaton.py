@@ -86,8 +86,8 @@ def process_video(client, video_data):
     current_title = video_data.get('name', '')
     
     # --- 1. Determine Correct Date and Title ---
-    # Use modified_time for a more accurate date of the event
-    upload_time_utc = datetime.fromisoformat(video_data['modified_time'].replace('Z', '+00:00'))
+    # FIX: Use created_time for accurate event date/time, not modified_time.
+    upload_time_utc = datetime.fromisoformat(video_data['created_time'].replace('Z', '+00:00'))
     local_tz = pytz.timezone(TIMEZONE)
     upload_time_local = upload_time_utc.astimezone(local_tz)
     correct_date_str = upload_time_local.strftime('%Y-%m-%d')
@@ -109,15 +109,14 @@ def process_video(client, video_data):
         service_type = "Contemporary" if 'contemporary' in video_title_lower else "Traditional"
 
         # Saturday Service
-        if day_of_week == 5 and 17 <= hour < 20: # Expanded 5pm-8pm window for 5:30 service
+        if day_of_week == 5 and 17 <= hour < 20: # 5pm-8pm window for 5:30 service
             final_title_suffix = "Worship Service - Traditional 5:30 PM"
         # Sunday Services
         elif day_of_week == 6:
-            # --- REVISED LOGIC: Use a simple cutoff time for Sunday services ---
-            # This is more robust against video processing delays.
-            if hour < 11:
+            # --- REVISED LOGIC: Use explicit time windows for Sunday services ---
+            if 8 <= hour < 10: # 9:30 AM Service (window from 8am to 10am)
                 final_title_suffix = f"Worship Service - {service_type} 9:30 AM"
-            else: # Assumes anything processed at or after 11am is the 11am service
+            elif 10 <= hour < 13: # 11:00 AM Service (window from 10am to 1pm)
                 final_title_suffix = f"Worship Service - {service_type} 11:00 AM"
         # Weekday "Worship" title -> likely a Memorial/Wedding
         else:
@@ -125,8 +124,8 @@ def process_video(client, video_data):
             category_folder_name = "Weddings and Memorials"
             final_title_suffix = "Memorial or Wedding Service"
     
-    # UPDATED RULE for The Root Class (SUNDAY ONLY)
-    elif 'capture - piro hall' in video_title_lower and day_of_week == 6:
+    # FIX: Check for "root class" as well to prevent miscategorization
+    elif ('capture - piro hall' in video_title_lower or 'the root class' in video_title_lower) and day_of_week == 6:
         category_folder_name = "The Root Class"
         final_title_suffix = "0930 - The Root Class"
     
