@@ -124,10 +124,13 @@ def process_video(client, video_data):
             category_folder_name = "Weddings and Memorials"
             final_title_suffix = "Memorial or Wedding Service"
     
-    # FIX: Check for "root class" as well to prevent miscategorization
-    elif ('capture - piro hall' in video_title_lower or 'the root class' in video_title_lower) and day_of_week == 6:
+    # FIX: Check for "root class" and now handle Mondays as well.
+    elif ('capture - piro hall' in video_title_lower or 'the root class' in video_title_lower) and day_of_week in [0, 6]: # Monday (0) or Sunday (6)
         category_folder_name = "The Root Class"
-        final_title_suffix = "0930 - The Root Class"
+        if day_of_week == 6:  # Sunday
+            final_title_suffix = "0930 - The Root Class"
+        else:  # Monday
+            final_title_suffix = "The Root Class"
     
     # Check other categories if not a worship service
     elif 'memorial' in video_title_lower or 'wedding' in video_title_lower:
